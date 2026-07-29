@@ -1,0 +1,84 @@
+{
+  "conversations": [
+    {
+      "id": "chat_1",
+      "target_id": "u002",
+      "target_name": "李四",
+      "messages": [
+        {
+          "sender": "me",
+          "content": "周末的英语角你去吗？",
+          "time": "2026-07-21 14:00"
+        },
+        {
+          "sender": "other",
+          "content": "去啊！我已经报名了",
+          "time": "2026-07-21 14:05"
+        }
+      ],
+      "created": "2026-07-10"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif_evt_evt_1_1784789705",
+      "type": "event",
+      "event_id": "evt_1",
+      "event_title": "AI 学术讲座：大语言模型前沿",
+      "event_time": "2026-07-28 14:00-16:00",
+      "content": "你已报名「AI 学术讲座：大语言模型前沿」，活动时间：2026-07-28 14:00-16:00",
+      "time": "2026-07-23 14:55",
+      "read": false
+    },
+    {
+      "id": "notif_evt_evt_4_1784785487",
+      "type": "event",
+      "event_id": "evt_4",
+      "event_title": "大学生职业规划工作坊",
+      "event_time": "2026-07-30 13:00-15:00",
+      "content": "你已报名「大学生职业规划工作坊」，活动时间：2026-07-30 13:00-15:00",
+      "time": "2026-07-23 13:44",
+      "read": false
+    },
+    {
+      "id": "notif_evt_evt_1_1784785135",
+      "type": "event",
+      "event_id": "evt_1",
+      "event_title": "AI 学术讲座：大语言模型前沿",
+      "event_time": "2026-07-28 14:00-16:00",
+      "content": "你已报名「AI 学术讲座：大语言模型前沿」，活动时间：2026-07-28 14:00-16:00",
+      "time": "2026-07-23 13:38",
+      "read": false
+    },
+    {
+      "id": "notif_1",
+      "content": "张三 赞了你的帖子",
+      "time": "2026-07-22 11:30",
+      "read": false
+    },
+    {
+      "id": "notif_2",
+      "content": "李四 评论了你的帖子",
+      "time": "2026-07-22 10:00",
+      "read": false
+    },
+    {
+      "id": "notif_3",
+      "content": "新活动：AI 学术讲座即将开始",
+      "time": "2026-07-21 09:00",
+      "read": true
+    },
+    {
+      "id": "notif_4",
+      "content": "CSE101 作业即将截止",
+      "time": "2026-07-20 18:00",
+      "read": false
+    },
+    {
+      "id": "notif_5",
+      "content": "系统通知：账号安全提醒",
+      "time": "2026-07-19 12:00",
+      "read": true
+    }
+  ]
+}

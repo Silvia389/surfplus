@@ -1,0 +1,143 @@
+{
+  "posts": [
+    {
+      "id": "post_1784790635_8",
+      "title": "",
+      "content": "哈喽",
+      "section": "general",
+      "anonymous": false,
+      "time": "2026-07-23 15:10",
+      "likes": 0,
+      "comments_count": 0,
+      "comments": []
+    },
+    {
+      "id": "post_1784789581_7",
+      "title": "你好",
+      "content": "你好",
+      "section": "general",
+      "anonymous": false,
+      "time": "2026-07-23 14:53",
+      "likes": 1,
+      "comments_count": 0,
+      "comments": []
+    },
+    {
+      "id": "post_1784785300_6",
+      "title": "",
+      "content": "嗨！",
+      "section": "general",
+      "anonymous": false,
+      "time": "2026-07-23 13:41",
+      "likes": 1,
+      "comments_count": 1,
+      "comments": [
+        {
+          "id": "cmt_1784790656",
+          "content": "哇！",
+          "anonymous": false,
+          "time": "2026-07-23 15:10"
+        }
+      ]
+    },
+    {
+      "id": "post_1784775244_5",
+      "title": "",
+      "content": "大家好！",
+      "section": "general",
+      "anonymous": false,
+      "time": "2026-07-23 10:54",
+      "likes": 3,
+      "comments_count": 2,
+      "comments": [
+        {
+          "id": "cmt_1784781103",
+          "content": "你好👋",
+          "anonymous": false,
+          "time": "2026-07-23 12:31"
+        },
+        {
+          "id": "cmt_1784785270",
+          "content": "哈喽！",
+          "anonymous": false,
+          "time": "2026-07-23 13:41"
+        }
+      ]
+    },
+    {
+      "id": "post_1",
+      "title": "今天图书馆好多人",
+      "content": "今天图书馆从早上就满人了，期末氛围拉满！大家加油复习💪",
+      "section": "general",
+      "anonymous": false,
+      "time": "2026-07-22 10:30",
+      "likes": 15,
+      "comments_count": 3,
+      "comments": [
+        {
+          "id": "cmt_1",
+          "content": "确实，我9点去就没位置了",
+          "anonymous": false,
+          "time": "2026-07-22 10:45"
+        },
+        {
+          "id": "cmt_2",
+          "content": "推荐CB那边人少一点",
+          "anonymous": false,
+          "time": "2026-07-22 11:00"
+        }
+      ]
+    },
+    {
+      "id": "post_2",
+      "title": "求组队参加黑客松",
+      "content": "下个月有个AI黑客松比赛，找2-3个队友，会Python/ML的优先！感兴趣dd",
+      "section": "recruitment",
+      "anonymous": false,
+      "time": "2026-07-21 15:20",
+      "likes": 8,
+      "comments_count": 5,
+      "comments": []
+    },
+    {
+      "id": "post_3",
+      "title": "吐槽一下食堂",
+      "content": "食堂今天中午的菜真的好咸...有没有同感的",
+      "section": "general",
+      "anonymous": true,
+      "time": "2026-07-21 12:00",
+      "likes": 22,
+      "comments_count": 8,
+      "comments": [
+        {
+          "id": "cmt_3",
+          "content": "同感！红烧肉像盐罐子打翻了",
+          "anonymous": true,
+          "time": "2026-07-21 12:15"
+        }
+      ]
+    },
+    {
+      "id": "post_4",
+      "title": "CSE101 期中考试回忆",
+      "content": "刚考完CSE101期中，分享一下题目类型供学弟学妹参考：选择题20道、编程题2道、简答题5道。重点是list和dict操作。",
+      "section": "academic",
+      "anonymous": false,
+      "time": "2026-07-20 17:00",
+      "likes": 35,
+      "comments_count": 12,
+      "comments": []
+    },
+    {
+      "id": "post_5",
+      "title": "周末羽毛球约球",
+      "content": "周六下午2点体育馆，2缺2，欢迎来玩~水平不限",
+      "section": "general",
+      "anonymous": false,
+      "time": "2026-07-19 20:00",
+      "likes": 12,
+      "comments_count": 6,
+      "comments": []
+    }
+  ]
+}

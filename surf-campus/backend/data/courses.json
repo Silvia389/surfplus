@@ -1,0 +1,35 @@
+{
+  "courses": [
+    { "id": "CSE101", "name": "程序设计基础", "code": "CSE101", "schedule": "周一 10:00-12:00", "location": "EB206", "professor": "张明", "credits": 4 },
+    { "id": "MTH201", "name": "线性代数", "code": "MTH201", "schedule": "周二 14:00-16:00", "location": "FB332", "professor": "李华", "credits": 4 },
+    { "id": "ENG103", "name": "学术英语写作", "code": "ENG103", "schedule": "周三 09:00-11:00", "location": "CB347", "professor": "Sarah Chen", "credits": 3 },
+    { "id": "PHY102", "name": "大学物理", "code": "PHY102", "schedule": "周四 13:00-15:00", "location": "SB152", "professor": "王强", "credits": 4 },
+    { "id": "ECO201", "name": "微观经济学", "code": "ECO201", "schedule": "周五 10:00-12:00", "location": "BS311", "professor": "赵敏", "credits": 3 },
+    { "id": "CSE205", "name": "数据结构", "code": "CSE205", "schedule": "周一 14:00-16:00", "location": "EB211", "professor": "刘洋", "credits": 4 }
+  ],
+  "assignments": [
+    { "course": "CSE101", "title": "第3周编程作业：猜数字游戏", "deadline": "2026-07-28 23:59", "status": "未提交" },
+    { "course": "MTH201", "title": "矩阵运算习题集", "deadline": "2026-07-25 23:59", "status": "未提交" },
+    { "course": "ENG103", "title": "Essay Draft 1: Argumentative Writing", "deadline": "2026-08-01 23:59", "status": "未提交" },
+    { "course": "PHY102", "title": "实验报告：力学基础实验", "deadline": "2026-07-22 23:59", "status": "进行中" },
+    { "course": "ECO201", "title": "Chapter 4 课后习题", "deadline": "2026-07-24 23:59", "status": "未提交" }
+  ],
+  "exam_scores": [
+    { "course": "CSE101", "exam": "期中考试", "score": 85, "total": 100, "grade": "A" },
+    { "course": "MTH201", "exam": "期中考试", "score": 78, "total": 100, "grade": "B+" },
+    { "course": "ENG103", "exam": "Quiz 1", "score": 92, "total": 100, "grade": "A" },
+    { "course": "PHY102", "exam": "期中考试", "score": 72, "total": 100, "grade": "B" }
+  ],
+  "resources": [
+    { "name": "CSE101 Week 3 课件", "course": "CSE101", "type": "课件", "uploader": "张明" },
+    { "name": "Python 编程入门指南", "course": "CSE101", "type": "参考资料", "uploader": "王小明" },
+    { "name": "线性代数公式汇总", "course": "MTH201", "type": "笔记", "uploader": "李华" },
+    { "name": "学术英语写作模板", "course": "ENG103", "type": "模板", "uploader": "Sarah Chen" },
+    { "name": "大学物理习题解答 Ch3", "course": "PHY102", "type": "习题解答", "uploader": "王强" }
+  ],
+  "qa": [
+    { "course": "CSE101", "question": "Python 中列表和元组的区别是什么？", "answers": 3 },
+    { "course": "MTH201", "question": "矩阵的秩怎么计算？有没有简便方法？", "answers": 2 },
+    { "course": "PHY102", "question": "期末实验报告格式有什么要求？", "answers": 1 }
+  ]
+}

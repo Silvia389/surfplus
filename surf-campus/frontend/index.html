@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XJTLU 虚拟校园互动平台 — Demo</title>
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+
+<!-- ===== Phone Frame ===== -->
+<div id="phone-frame">
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <span class="status-time" id="status-time">20:08</span>
+    <div class="status-icons">
+      <span>📶</span>
+      <span>📡</span>
+      <span>🔋 85%</span>
+    </div>
+  </div>
+
+  <!-- App Header -->
+  <div class="app-header" id="app-header">
+    <span class="app-header-back" id="header-back" style="display:none;" onclick="goBack()">←</span>
+    <span class="app-header-title" id="header-title">动态广场</span>
+    <span class="app-header-action" id="header-action"></span>
+  </div>
+
+  <!-- Page Container -->
+  <div id="page-container"></div>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar" id="tab-bar">
+    <div class="tab-item active" data-page="feed" onclick="switchTab('feed')">
+      <span class="tab-icon">🏠</span>
+      <span class="tab-label">首页</span>
+    </div>
+    <div class="tab-item" data-page="academic" onclick="switchTab('academic')">
+      <span class="tab-icon">📚</span>
+      <span class="tab-label">学术</span>
+    </div>
+    <div class="tab-item" data-page="events" onclick="switchTab('events')">
+      <span class="tab-icon">📅</span>
+      <span class="tab-label">活动</span>
+    </div>
+    <div class="tab-item" data-page="treehole" onclick="switchTab('treehole')">
+      <span class="tab-icon">🌳</span>
+      <span class="tab-label">树洞</span>
+    </div>
+    <div class="tab-item" data-page="profile" onclick="switchTab('profile')">
+      <span class="tab-icon">👤</span>
+      <span class="tab-label">我的</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Pages ===== -->
+
+<!-- Feed Page -->
+<div id="page-feed" class="page-content" style="display:block;">
+  <div class="feed-header-banner">
+    <div class="feed-banner-title">XJTLU 虚拟校园</div>
+    <div class="feed-banner-sub">连接每一位西浦人</div>
+  </div>
+  <div class="search-bar" onclick="handleSearch()">
+    <span class="search-icon">🔍</span>
+    <span class="search-placeholder">搜索动态、课程、活动...</span>
+  </div>
+  <div class="post-list" id="post-list"></div>
+  <div class="floating-btn" onclick="navigateTo('post-create')">✏️</div>
+</div>
+
+<!-- Academic Page -->
+<div id="page-academic" class="page-content" style="display:none;">
+  <div class="academic-tabs">
+    <div class="academic-tab active" onclick="switchAcademicTab('materials', this)">课程资料</div>
+    <div class="academic-tab" onclick="switchAcademicTab('questions', this)">课程问答</div>
+    <div class="academic-tab" onclick="switchAcademicTab('professors', this)">教授信息</div>
+  </div>
+  <div id="academic-materials" class="academic-panel">
+    <div class="search-bar" onclick="showToast('搜索功能开发中')">
+      <span class="search-icon">🔍</span>
+      <span class="search-placeholder">搜索课程...</span>
+    </div>
+    <div class="material-list" id="material-list"></div>
+  </div>
+  <div id="academic-questions" class="academic-panel" style="display:none;">
+    <div class="question-list" id="question-list"></div>
+    <div class="floating-btn" onclick="handleAskQuestion()">❓</div>
+  </div>
+  <div id="academic-professors" class="academic-panel" style="display:none;">
+    <div class="professor-list" id="professor-list"></div>
+  </div>
+</div>
+
+<!-- Events Page -->
+<div id="page-events" class="page-content" style="display:none;">
+  <div class="events-banner">
+    <div class="events-banner-title">活动日历</div>
+    <div class="events-banner-sub">发现校园精彩活动</div>
+  </div>
+  <div class="event-list" id="event-list"></div>
+</div>
+
+<!-- Treehole Page -->
+<div id="page-treehole" class="page-content" style="display:none;">
+  <div class="treehole-header">
+    <div class="treehole-title">🌳 匿名树洞</div>
+    <div class="treehole-sub">在这里，你可以放心倾诉</div>
+  </div>
+  <div class="treehole-list" id="treehole-list"></div>
+  <div class="floating-btn treehole-fab" onclick="handleTreeholePost()">💌</div>
+</div>
+
+<!-- Profile Page -->
+<div id="page-profile" class="page-content" style="display:none;">
+  <div class="profile-header">
+    <div class="profile-avatar">🧑‍🎓</div>
+    <div class="profile-info">
+      <div class="profile-name">张三</div>
+      <div class="profile-email">zhang.san@xjtlu.edu.cn</div>
+      <div class="profile-meta">计算机科学与技术 · 大三</div>
+    </div>
+    <div class="profile-edit" onclick="showToast('编辑资料功能开发中')">编辑</div>
+  </div>
+  <div class="profile-stats">
+    <div class="profile-stat" onclick="showToast('我的动态')">
+      <div class="profile-stat-num">12</div>
+      <div class="profile-stat-label">动态</div>
+    </div>
+    <div class="profile-stat" onclick="showToast('我的活动')">
+      <div class="profile-stat-num">5</div>
+      <div class="profile-stat-label">活动</div>
+    </div>
+    <div class="profile-stat" onclick="showToast('我的资料')">
+      <div class="profile-stat-num">8</div>
+      <div class="profile-stat-label">资料</div>
+    </div>
+    <div class="profile-stat" onclick="showToast('获赞')">
+      <div class="profile-stat-num">156</div>
+      <div class="profile-stat-label">获赞</div>
+    </div>
+  </div>
+  <div class="profile-menu">
+    <div class="profile-menu-item" onclick="navigateTo('messages')">
+      <span class="menu-icon">💬</span>
+      <span class="menu-text">站内消息</span>
+      <span class="menu-badge">3</span>
+      <span class="menu-arrow">›</span>
+    </div>
+    <div class="profile-menu-item" onclick="navigateTo('notifications')">
+      <span class="menu-icon">🔔</span>
+      <span class="menu-text">通知中心</span>
+      <span class="menu-badge">5</span>
+      <span class="menu-arrow">›</span>
+    </div>
+    <div class="profile-menu-item" onclick="navigateTo('settings')">
+      <span class="menu-icon">⚙️</span>
+      <span class="menu-text">设置</span>
+      <span class="menu-arrow">›</span>
+    </div>
+    <div class="profile-menu-item" onclick="navigateTo('login')">
+      <span class="menu-icon">🚪</span>
+      <span class="menu-text">退出登录</span>
+      <span class="menu-arrow">›</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Sub Pages ===== -->
+
+<!-- Login Page -->
+<div id="page-login" class="page-content sub-page" style="display:none;">
+  <div class="login-logo">
+    <div class="login-logo-circle">XJTLU</div>
+    <div class="login-logo-text">Virtual Campus</div>
+    <div class="login-logo-sub">西浦虚拟校园互动平台</div>
+  </div>
+  <div class="login-form">
+    <div class="form-group">
+      <label class="form-label">邮箱</label>
+      <input type="text" class="form-input" placeholder="请输入校园邮箱" value="demo@xjtlu.edu.cn">
+    </div>
+    <div class="form-group" id="login-password-group">
+      <label class="form-label">密码</label>
+      <input type="password" class="form-input" placeholder="请输入密码" value="••••••••">
+    </div>
+    <div class="form-group" id="login-code-group" style="display:none;">
+      <label class="form-label">验证码</label>
+      <div class="code-row">
+        <input type="text" class="form-input code-input" placeholder="请输入验证码">
+        <button class="code-btn" onclick="handleSendCode()">发送验证码</button>
+      </div>
+    </div>
+    <button class="primary-btn" onclick="handleLogin()">登录</button>
+    <div class="login-switch" onclick="toggleLoginMode()">
+      <span id="login-mode-text">验证码登录</span>
+    </div>
+    <div class="login-footer">
+      <span>还没有账号？</span>
+      <span class="link-text" onclick="navigateTo('register')">去注册</span>
+    </div>
+  </div>
+</div>
+
+<!-- Register Page -->
+<div id="page-register" class="page-content sub-page" style="display:none;">
+  <div class="login-logo">
+    <div class="login-logo-circle">XJTLU</div>
+    <div class="login-logo-text">创建账号</div>
+    <div class="login-logo-sub">使用校园邮箱注册</div>
+  </div>
+  <div class="login-form">
+    <div class="form-group">
+      <label class="form-label">昵称</label>
+      <input type="text" class="form-input" placeholder="请输入昵称">
+    </div>
+    <div class="form-group">
+      <label class="form-label">校园邮箱</label>
+      <input type="text" class="form-input" placeholder="name@xjtlu.edu.cn">
+    </div>
+    <div class="form-group">
+      <label class="form-label">验证码</label>
+      <div class="code-row">
+        <input type="text" class="form-input code-input" placeholder="请输入验证码">
+        <button class="code-btn" onclick="handleSendCode()">发送验证码</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">密码</label>
+      <input type="password" class="form-input" placeholder="设置密码（至少6位）">
+    </div>
+    <button class="primary-btn" onclick="showToast('注册成功！'); navigateTo('login')">注册</button>
+    <div class="login-footer">
+      <span>已有账号？</span>
+      <span class="link-text" onclick="navigateTo('login')">去登录</span>
+    </div>
+  </div>
+</div>
+
+<!-- Post Detail Page -->
+<div id="page-post-detail" class="page-content sub-page" style="display:none;">
+  <div id="post-detail-content"></div>
+</div>
+
+<!-- Treehole Detail Page -->
+<div id="page-treehole-detail" class="page-content sub-page" style="display:none;">
+  <div id="treehole-detail-content"></div>
+</div>
+
+<!-- Event Detail Page -->
+<div id="page-event-detail" class="page-content sub-page" style="display:none;">
+  <div id="event-detail-content"></div>
+</div>
+
+<!-- Messages Page -->
+<div id="page-messages" class="page-content sub-page" style="display:none;">
+  <div class="message-list" id="message-list"></div>
+</div>
+
+<!-- Notifications Page -->
+<div id="page-notifications" class="page-content sub-page" style="display:none;">
+  <div class="notification-list" id="notification-list"></div>
+</div>
+
+<!-- Settings Page -->
+<div id="page-settings" class="page-content sub-page" style="display:none;">
+  <div class="settings-group">
+    <div class="settings-group-title">通用</div>
+    <div class="settings-item">
+      <span>语言 / Language</span>
+      <div class="settings-toggle">
+        <span class="toggle-option active" onclick="toggleLanguage(this, 'zh')">中文</span>
+        <span class="toggle-option" onclick="toggleLanguage(this, 'en')">EN</span>
+      </div>
+    </div>
+    <div class="settings-item" onclick="showToast('深色模式开发中')">
+      <span>深色模式</span>
+      <div class="settings-switch off"></div>
+    </div>
+  </div>
+  <div class="settings-group">
+    <div class="settings-group-title">隐私</div>
+    <div class="settings-item" onclick="showToast('隐私设置开发中')">
+      <span>谁能看到我的动态</span>
+      <span class="settings-value">所有人 ›</span>
+    </div>
+    <div class="settings-item" onclick="showToast('隐私设置开发中')">
+      <span>匿名发帖</span>
+      <div class="settings-switch on"></div>
+    </div>
+  </div>
+  <div class="settings-group">
+    <div class="settings-group-title">通知</div>
+    <div class="settings-item">
+      <span>点赞通知</span>
+      <div class="settings-switch on"></div>
+    </div>
+    <div class="settings-item">
+      <span>评论通知</span>
+      <div class="settings-switch on"></div>
+    </div>
+    <div class="settings-item">
+      <span>消息通知</span>
+      <div class="settings-switch on"></div>
+    </div>
+  </div>
+  <div class="settings-group">
+    <div class="settings-group-title">关于</div>
+    <div class="settings-item" onclick="showToast('XJTLU Virtual Campus v0.5.0')">
+      <span>版本</span>
+      <span class="settings-value">v0.5.0 ›</span>
+    </div>
+  </div>
+</div>
+
+<!-- Post Create Page -->
+<div id="page-post-create" class="page-content sub-page" style="display:none;">
+  <div class="create-post">
+    <div class="create-post-user">
+      <div class="create-post-avatar">🧑‍🎓</div>
+      <div>
+        <div class="create-post-name">张三</div>
+        <div class="create-post-visibility">🌐 所有人可见</div>
+      </div>
+      <label class="create-post-anon">
+        <input type="checkbox" id="anon-toggle"> 匿名发布
+      </label>
+    </div>
+    <input type="text" class="create-post-title-input" placeholder="标题（选填）">
+    <textarea class="create-post-textarea" placeholder="分享点什么..."></textarea>
+    <div class="create-post-tools">
+      <div class="create-post-tool" onclick="showToast('图片上传开发中')">📷 图片</div>
+      <div class="create-post-tool" onclick="showToast('标签功能开发中')">🏷️ 标签</div>
+      <div class="create-post-tool" onclick="showToast('话题功能开发中')"># 话题</div>
+    </div>
+    <button class="primary-btn" onclick="handleCreatePost()">发布</button>
+  </div>
+</div>
+
+<!-- Search Results Page -->
+<div id="page-search-results" class="page-content sub-page" style="display:none;">
+  <div id="search-results-container"></div>
+</div>
+
+<!-- ===== AI Assistant ===== -->
+<div id="ai-chat-overlay" style="display:none;">
+  <div id="ai-chat-panel">
+    <div id="ai-chat-header">
+      <span style="font-size:16px;font-weight:600;">🤖 校园 AI 助手</span>
+      <span id="ai-chat-close" onclick="closeAIChat()">✕</span>
+    </div>
+    <div id="ai-chat-messages">
+      <div class="ai-msg ai-bot">
+        <div class="ai-msg-bubble">你好！👋 我是你的校园 AI 助手。可以问我课程信息、活动推荐、学术问题，或者随便聊聊～</div>
+      </div>
+    </div>
+    <div id="ai-chat-input-area">
+      <input type="text" id="ai-chat-input" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter')sendAIMessage()">
+      <button id="ai-chat-send" onclick="sendAIMessage()">发送</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Floating Button -->
+<div id="ai-fab" onclick="openAIChat()">🤖</div>
+
+<!-- ===== Toast ===== -->
+<div id="toast" class="toast"></div>
+
+<script src="demo.js"></script>
+</body>
+</html>

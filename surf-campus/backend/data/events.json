@@ -1,0 +1,74 @@
+{
+  "events": [
+    {
+      "id": "evt_1",
+      "title": "AI 学术讲座：大语言模型前沿",
+      "time": "2026-07-28 14:00-16:00",
+      "location": "EB Hall",
+      "organizer": "计算机学院",
+      "description": "特邀牛津大学王教授分享大语言模型最新研究进展",
+      "registered": 50,
+      "capacity": 100
+    },
+    {
+      "id": "evt_2",
+      "title": "社团招新嘉年华",
+      "time": "2026-08-02 10:00-17:00",
+      "location": "中心广场",
+      "organizer": "社团联合会",
+      "description": "新学期社团招新，60+社团等你来加入",
+      "registered": 120,
+      "capacity": 500
+    },
+    {
+      "id": "evt_3",
+      "title": "英语角：Cross-Cultural Communication",
+      "time": "2026-07-26 15:00-17:00",
+      "location": "CB G12",
+      "organizer": "英语语言中心",
+      "description": "和外教一起聊跨文化交流，提升口语",
+      "registered": 19,
+      "capacity": 30
+    },
+    {
+      "id": "evt_4",
+      "title": "大学生职业规划工作坊",
+      "time": "2026-07-30 13:00-15:00",
+      "location": "BS G02",
+      "organizer": "就业指导中心",
+      "description": "简历撰写、面试技巧、职业规划一站搞定",
+      "registered": 33,
+      "capacity": 50
+    }
+  ],
+  "clubs": [
+    {
+      "id": "club_1",
+      "name": "AI 爱好者协会",
+      "description": "研究人工智能前沿技术，举办黑客松和研讨会",
+      "members": 85,
+      "president": "张三"
+    },
+    {
+      "id": "club_2",
+      "name": "摄影社",
+      "description": "用镜头记录校园生活，定期组织外拍活动",
+      "members": 120,
+      "president": "李四"
+    },
+    {
+      "id": "club_3",
+      "name": "音乐社",
+      "description": "吉他、钢琴、声乐，每周五晚有Jam Session",
+      "members": 65,
+      "president": "王小明"
+    },
+    {
+      "id": "club_4",
+      "name": "羽毛球社",
+      "description": "每周六下午体育馆打球，欢迎新手",
+      "members": 45,
+      "president": "赵六"
+    }
+  ]
+}
