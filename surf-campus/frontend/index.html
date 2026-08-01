@@ -1,374 +1,197 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>XJTLU 虚拟校园互动平台 — Demo</title>
-<link rel="stylesheet" href="demo.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f5f2">
+  <title>SURF Campus</title>
+  <link rel="stylesheet" href="demo.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
-<body>
+<body class="auth-pending">
+  <main class="login-experience" id="login-experience" data-mood="idle" aria-label="登录 SURF Campus">
+    <section class="mascot-stage" aria-label="SURF Campus 欢迎场景">
+      <a class="login-brand" href="/" aria-label="SURF Campus 首页">
+        <span class="login-brand-mark" aria-hidden="true">S</span>
+        <span><strong>SURF</strong><small>Campus</small></span>
+      </a>
 
-<!-- ===== Phone Frame ===== -->
-<div id="phone-frame">
-  <!-- Status Bar -->
-  <div class="status-bar">
-    <span class="status-time" id="status-time">20:08</span>
-    <div class="status-icons">
-      <span>📶</span>
-      <span>📡</span>
-      <span>🔋 85%</span>
-    </div>
-  </div>
-
-  <!-- App Header -->
-  <div class="app-header" id="app-header">
-    <span class="app-header-back" id="header-back" style="display:none;" onclick="goBack()">←</span>
-    <span class="app-header-title" id="header-title">动态广场</span>
-    <span class="app-header-action" id="header-action"></span>
-  </div>
-
-  <!-- Page Container -->
-  <div id="page-container"></div>
-
-  <!-- Tab Bar -->
-  <div class="tab-bar" id="tab-bar">
-    <div class="tab-item active" data-page="feed" onclick="switchTab('feed')">
-      <span class="tab-icon">🏠</span>
-      <span class="tab-label">首页</span>
-    </div>
-    <div class="tab-item" data-page="academic" onclick="switchTab('academic')">
-      <span class="tab-icon">📚</span>
-      <span class="tab-label">学术</span>
-    </div>
-    <div class="tab-item" data-page="events" onclick="switchTab('events')">
-      <span class="tab-icon">📅</span>
-      <span class="tab-label">活动</span>
-    </div>
-    <div class="tab-item" data-page="treehole" onclick="switchTab('treehole')">
-      <span class="tab-icon">🌳</span>
-      <span class="tab-label">树洞</span>
-    </div>
-    <div class="tab-item" data-page="profile" onclick="switchTab('profile')">
-      <span class="tab-icon">👤</span>
-      <span class="tab-label">我的</span>
-    </div>
-  </div>
-</div>
-
-<!-- ===== Pages ===== -->
-
-<!-- Feed Page -->
-<div id="page-feed" class="page-content" style="display:block;">
-  <div class="feed-header-banner">
-    <div class="feed-banner-title">XJTLU 虚拟校园</div>
-    <div class="feed-banner-sub">连接每一位西浦人</div>
-  </div>
-  <div class="search-bar" onclick="handleSearch()">
-    <span class="search-icon">🔍</span>
-    <span class="search-placeholder">搜索动态、课程、活动...</span>
-  </div>
-  <div class="post-list" id="post-list"></div>
-  <div class="floating-btn" onclick="navigateTo('post-create')">✏️</div>
-</div>
-
-<!-- Academic Page -->
-<div id="page-academic" class="page-content" style="display:none;">
-  <div class="academic-tabs">
-    <div class="academic-tab active" onclick="switchAcademicTab('materials', this)">课程资料</div>
-    <div class="academic-tab" onclick="switchAcademicTab('questions', this)">课程问答</div>
-    <div class="academic-tab" onclick="switchAcademicTab('professors', this)">教授信息</div>
-  </div>
-  <div id="academic-materials" class="academic-panel">
-    <div class="search-bar" onclick="showToast('搜索功能开发中')">
-      <span class="search-icon">🔍</span>
-      <span class="search-placeholder">搜索课程...</span>
-    </div>
-    <div class="material-list" id="material-list"></div>
-  </div>
-  <div id="academic-questions" class="academic-panel" style="display:none;">
-    <div class="question-list" id="question-list"></div>
-    <div class="floating-btn" onclick="handleAskQuestion()">❓</div>
-  </div>
-  <div id="academic-professors" class="academic-panel" style="display:none;">
-    <div class="professor-list" id="professor-list"></div>
-  </div>
-</div>
-
-<!-- Events Page -->
-<div id="page-events" class="page-content" style="display:none;">
-  <div class="events-banner">
-    <div class="events-banner-title">活动日历</div>
-    <div class="events-banner-sub">发现校园精彩活动</div>
-  </div>
-  <div class="event-list" id="event-list"></div>
-</div>
-
-<!-- Treehole Page -->
-<div id="page-treehole" class="page-content" style="display:none;">
-  <div class="treehole-header">
-    <div class="treehole-title">🌳 匿名树洞</div>
-    <div class="treehole-sub">在这里，你可以放心倾诉</div>
-  </div>
-  <div class="treehole-list" id="treehole-list"></div>
-  <div class="floating-btn treehole-fab" onclick="handleTreeholePost()">💌</div>
-</div>
-
-<!-- Profile Page -->
-<div id="page-profile" class="page-content" style="display:none;">
-  <div class="profile-header">
-    <div class="profile-avatar">🧑‍🎓</div>
-    <div class="profile-info">
-      <div class="profile-name">张三</div>
-      <div class="profile-email">zhang.san@xjtlu.edu.cn</div>
-      <div class="profile-meta">计算机科学与技术 · 大三</div>
-    </div>
-    <div class="profile-edit" onclick="showToast('编辑资料功能开发中')">编辑</div>
-  </div>
-  <div class="profile-stats">
-    <div class="profile-stat" onclick="showToast('我的动态')">
-      <div class="profile-stat-num">12</div>
-      <div class="profile-stat-label">动态</div>
-    </div>
-    <div class="profile-stat" onclick="showToast('我的活动')">
-      <div class="profile-stat-num">5</div>
-      <div class="profile-stat-label">活动</div>
-    </div>
-    <div class="profile-stat" onclick="showToast('我的资料')">
-      <div class="profile-stat-num">8</div>
-      <div class="profile-stat-label">资料</div>
-    </div>
-    <div class="profile-stat" onclick="showToast('获赞')">
-      <div class="profile-stat-num">156</div>
-      <div class="profile-stat-label">获赞</div>
-    </div>
-  </div>
-  <div class="profile-menu">
-    <div class="profile-menu-item" onclick="navigateTo('messages')">
-      <span class="menu-icon">💬</span>
-      <span class="menu-text">站内消息</span>
-      <span class="menu-badge">3</span>
-      <span class="menu-arrow">›</span>
-    </div>
-    <div class="profile-menu-item" onclick="navigateTo('notifications')">
-      <span class="menu-icon">🔔</span>
-      <span class="menu-text">通知中心</span>
-      <span class="menu-badge">5</span>
-      <span class="menu-arrow">›</span>
-    </div>
-    <div class="profile-menu-item" onclick="navigateTo('settings')">
-      <span class="menu-icon">⚙️</span>
-      <span class="menu-text">设置</span>
-      <span class="menu-arrow">›</span>
-    </div>
-    <div class="profile-menu-item" onclick="navigateTo('login')">
-      <span class="menu-icon">🚪</span>
-      <span class="menu-text">退出登录</span>
-      <span class="menu-arrow">›</span>
-    </div>
-  </div>
-</div>
-
-<!-- ===== Sub Pages ===== -->
-
-<!-- Login Page -->
-<div id="page-login" class="page-content sub-page" style="display:none;">
-  <div class="login-logo">
-    <div class="login-logo-circle">XJTLU</div>
-    <div class="login-logo-text">Virtual Campus</div>
-    <div class="login-logo-sub">西浦虚拟校园互动平台</div>
-  </div>
-  <div class="login-form">
-    <div class="form-group">
-      <label class="form-label">邮箱</label>
-      <input type="text" class="form-input" placeholder="请输入校园邮箱" value="demo@xjtlu.edu.cn">
-    </div>
-    <div class="form-group" id="login-password-group">
-      <label class="form-label">密码</label>
-      <input type="password" class="form-input" placeholder="请输入密码" value="••••••••">
-    </div>
-    <div class="form-group" id="login-code-group" style="display:none;">
-      <label class="form-label">验证码</label>
-      <div class="code-row">
-        <input type="text" class="form-input code-input" placeholder="请输入验证码">
-        <button class="code-btn" onclick="handleSendCode()">发送验证码</button>
+      <div class="mascot-copy">
+        <span>YOUR CAMPUS, IN MOTION</span>
+        <h1>Meet campus.<br>Find your people.</h1>
       </div>
-    </div>
-    <button class="primary-btn" onclick="handleLogin()">登录</button>
-    <div class="login-switch" onclick="toggleLoginMode()">
-      <span id="login-mode-text">验证码登录</span>
-    </div>
-    <div class="login-footer">
-      <span>还没有账号？</span>
-      <span class="link-text" onclick="navigateTo('register')">去注册</span>
-    </div>
-  </div>
-</div>
 
-<!-- Register Page -->
-<div id="page-register" class="page-content sub-page" style="display:none;">
-  <div class="login-logo">
-    <div class="login-logo-circle">XJTLU</div>
-    <div class="login-logo-text">创建账号</div>
-    <div class="login-logo-sub">使用校园邮箱注册</div>
-  </div>
-  <div class="login-form">
-    <div class="form-group">
-      <label class="form-label">昵称</label>
-      <input type="text" class="form-input" placeholder="请输入昵称">
-    </div>
-    <div class="form-group">
-      <label class="form-label">校园邮箱</label>
-      <input type="text" class="form-input" placeholder="name@xjtlu.edu.cn">
-    </div>
-    <div class="form-group">
-      <label class="form-label">验证码</label>
-      <div class="code-row">
-        <input type="text" class="form-input code-input" placeholder="请输入验证码">
-        <button class="code-btn" onclick="handleSendCode()">发送验证码</button>
+      <div class="mascot-scene" id="mascot-scene" aria-hidden="true">
+        <div class="mascot mascot-purple" data-mascot="purple">
+          <div class="mascot-feedback"><div class="mascot-body">
+            <div class="mascot-face"><span class="eye"><span class="pupil"></span></span><span class="eye"><span class="pupil"></span></span><span class="mouth"></span></div>
+            <span class="arm arm-left"><span class="palm"></span></span><span class="arm arm-right"><span class="palm"></span></span>
+          </div></div>
+        </div>
+        <div class="mascot mascot-black" data-mascot="black">
+          <div class="mascot-feedback"><div class="mascot-body">
+            <div class="mascot-face"><span class="eye"><span class="pupil"></span></span><span class="eye"><span class="pupil"></span></span><span class="mouth"></span></div>
+            <span class="arm arm-left"><span class="palm"></span></span><span class="arm arm-right"><span class="palm"></span></span>
+          </div></div>
+        </div>
+        <div class="mascot mascot-yellow" data-mascot="yellow">
+          <div class="mascot-feedback"><div class="mascot-body">
+            <div class="mascot-face"><span class="eye"><span class="pupil"></span></span><span class="eye"><span class="pupil"></span></span><span class="mouth"></span></div>
+            <span class="arm arm-left"><span class="palm"></span></span><span class="arm arm-right"><span class="palm"></span></span>
+          </div></div>
+        </div>
+        <div class="mascot mascot-orange" data-mascot="orange">
+          <div class="mascot-feedback"><div class="mascot-body">
+            <div class="mascot-face"><span class="eye"><span class="pupil"></span></span><span class="eye"><span class="pupil"></span></span><span class="mouth"></span></div>
+            <span class="arm arm-left"><span class="palm"></span></span><span class="arm arm-right"><span class="palm"></span></span>
+          </div></div>
+        </div>
       </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">密码</label>
-      <input type="password" class="form-input" placeholder="设置密码（至少6位）">
-    </div>
-    <button class="primary-btn" onclick="showToast('注册成功！'); navigateTo('login')">注册</button>
-    <div class="login-footer">
-      <span>已有账号？</span>
-      <span class="link-text" onclick="navigateTo('login')">去登录</span>
-    </div>
-  </div>
-</div>
 
-<!-- Post Detail Page -->
-<div id="page-post-detail" class="page-content sub-page" style="display:none;">
-  <div id="post-detail-content"></div>
-</div>
+      <footer class="login-stage-footer"><span>Privacy</span><span>Terms</span><span>Made for XJTLU</span></footer>
+    </section>
 
-<!-- Treehole Detail Page -->
-<div id="page-treehole-detail" class="page-content sub-page" style="display:none;">
-  <div id="treehole-detail-content"></div>
-</div>
+    <section class="login-panel">
+      <div class="login-card">
+        <div class="login-heading">
+          <span class="login-kicker">SURF CAMPUS</span>
+          <h2>Welcome back!</h2>
+          <p>Please enter your details</p>
+        </div>
 
-<!-- Event Detail Page -->
-<div id="page-event-detail" class="page-content sub-page" style="display:none;">
-  <div id="event-detail-content"></div>
-</div>
+        <div class="login-switch" role="tablist" aria-label="登录方式">
+          <button class="is-active" id="email-login-tab" type="button" role="tab" aria-selected="true" aria-controls="email-login-form" data-login-mode="email"><i data-lucide="mail"></i><span>Email</span></button>
+          <button id="phone-login-tab" type="button" role="tab" aria-selected="false" aria-controls="login-phone-form" data-login-mode="phone"><i data-lucide="smartphone"></i><span>手机号</span></button>
+        </div>
 
-<!-- Messages Page -->
-<div id="page-messages" class="page-content sub-page" style="display:none;">
-  <div class="message-list" id="message-list"></div>
-</div>
+        <form class="login-form" id="email-login-form" novalidate>
+          <div class="login-field">
+            <label for="login-email">Email</label>
+            <div class="login-input-wrap"><i data-lucide="mail" aria-hidden="true"></i><input id="login-email" name="email" type="email" autocomplete="email" placeholder="you@xjtlu.edu.cn" required></div>
+          </div>
+          <div class="login-field">
+            <div class="login-label-row"><label for="login-password">Password</label><button class="login-text-button" type="button" id="forgot-password">Forgot password?</button></div>
+            <div class="login-input-wrap"><i data-lucide="lock-keyhole" aria-hidden="true"></i><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="6" required><button class="password-toggle" id="password-toggle" type="button" aria-label="显示密码" aria-pressed="false"><i data-lucide="eye"></i></button></div>
+          </div>
+          <div class="login-options">
+            <label class="remember-control"><input id="remember-login" name="remember" type="checkbox"><span aria-hidden="true"><i data-lucide="check"></i></span>Remember me</label>
+          </div>
+          <p class="login-message" id="email-login-message" aria-live="polite"></p>
+          <button class="login-submit" type="submit"><span>Log in</span><i data-lucide="arrow-right"></i></button>
+          <button class="login-alternate" type="button" data-login-mode="phone"><i data-lucide="smartphone"></i><span>使用手机号登录</span></button>
+        </form>
 
-<!-- Notifications Page -->
-<div id="page-notifications" class="page-content sub-page" style="display:none;">
-  <div class="notification-list" id="notification-list"></div>
-</div>
+        <form class="login-form" id="login-phone-form" hidden novalidate>
+          <div class="login-field">
+            <label for="login-phone">手机号</label>
+            <div class="login-input-wrap"><i data-lucide="smartphone" aria-hidden="true"></i><input id="login-phone" name="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="11 位手机号" minlength="11" maxlength="11" required></div>
+          </div>
+          <div class="login-field">
+            <label for="login-code">短信验证码</label>
+            <div class="login-input-wrap login-code-wrap"><i data-lucide="message-square-key" aria-hidden="true"></i><input id="login-code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" minlength="6" maxlength="6" required><button class="send-code-button" id="send-code" type="button">获取验证码</button></div>
+          </div>
+          <p class="login-message" id="phone-login-message" aria-live="polite"></p>
+          <button class="login-submit" type="submit"><span>手机号登录</span><i data-lucide="arrow-right"></i></button>
+          <button class="login-alternate" type="button" data-login-mode="email"><i data-lucide="mail"></i><span>使用邮箱登录</span></button>
+        </form>
 
-<!-- Settings Page -->
-<div id="page-settings" class="page-content sub-page" style="display:none;">
-  <div class="settings-group">
-    <div class="settings-group-title">通用</div>
-    <div class="settings-item">
-      <span>语言 / Language</span>
-      <div class="settings-toggle">
-        <span class="toggle-option active" onclick="toggleLanguage(this, 'zh')">中文</span>
-        <span class="toggle-option" onclick="toggleLanguage(this, 'en')">EN</span>
+        <p class="login-signup">Don't have an account? <button type="button" id="create-account">Sign up</button></p>
       </div>
-    </div>
-    <div class="settings-item" onclick="showToast('深色模式开发中')">
-      <span>深色模式</span>
-      <div class="settings-switch off"></div>
-    </div>
-  </div>
-  <div class="settings-group">
-    <div class="settings-group-title">隐私</div>
-    <div class="settings-item" onclick="showToast('隐私设置开发中')">
-      <span>谁能看到我的动态</span>
-      <span class="settings-value">所有人 ›</span>
-    </div>
-    <div class="settings-item" onclick="showToast('隐私设置开发中')">
-      <span>匿名发帖</span>
-      <div class="settings-switch on"></div>
-    </div>
-  </div>
-  <div class="settings-group">
-    <div class="settings-group-title">通知</div>
-    <div class="settings-item">
-      <span>点赞通知</span>
-      <div class="settings-switch on"></div>
-    </div>
-    <div class="settings-item">
-      <span>评论通知</span>
-      <div class="settings-switch on"></div>
-    </div>
-    <div class="settings-item">
-      <span>消息通知</span>
-      <div class="settings-switch on"></div>
-    </div>
-  </div>
-  <div class="settings-group">
-    <div class="settings-group-title">关于</div>
-    <div class="settings-item" onclick="showToast('XJTLU Virtual Campus v0.5.0')">
-      <span>版本</span>
-      <span class="settings-value">v0.5.0 ›</span>
-    </div>
-  </div>
-</div>
+      <p class="login-security"><i data-lucide="shield-check"></i><span>Protected campus access</span></p>
+    </section>
+  </main>
 
-<!-- Post Create Page -->
-<div id="page-post-create" class="page-content sub-page" style="display:none;">
-  <div class="create-post">
-    <div class="create-post-user">
-      <div class="create-post-avatar">🧑‍🎓</div>
-      <div>
-        <div class="create-post-name">张三</div>
-        <div class="create-post-visibility">🌐 所有人可见</div>
+  <div class="app-shell" id="app-shell" inert aria-hidden="true">
+    <aside class="sidebar" aria-label="主导航">
+      <button class="brand" type="button" data-route="feed" aria-label="返回校园话题">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span><strong>SURF</strong><small>Campus</small></span>
+      </button>
+
+      <nav class="primary-nav" aria-label="校园空间">
+        <button class="nav-item is-active" type="button" data-route="feed"><i data-lucide="messages-square"></i><span>校园话题</span></button>
+        <button class="nav-item" type="button" data-route="search"><i data-lucide="search"></i><span>发现</span></button>
+        <button class="nav-item" type="button" data-route="notifications"><i data-lucide="bell"></i><span>通知</span><b id="nav-unread" hidden>0</b></button>
+        <button class="nav-item" type="button" data-route="resources"><i data-lucide="book-open"></i><span>课程资料</span></button>
+        <button class="nav-item" type="button" data-route="events"><i data-lucide="calendar-days"></i><span>活动</span></button>
+        <button class="nav-item" type="button" data-route="opportunities"><i data-lucide="users-round"></i><span>组队招募</span></button>
+        <button class="nav-item" type="button" data-route="directory"><i data-lucide="contact-round"></i><span>通讯录</span></button>
+        <button class="nav-item" type="button" data-route="treehole"><i data-lucide="lock-keyhole"></i><span>匿名树洞</span></button>
+      </nav>
+
+      <button class="new-post-button" id="sidebar-compose" type="button"><i data-lucide="square-pen"></i><span>发布话题</span></button>
+
+      <div class="sidebar-foot">
+        <button class="identity-note" id="identity-note" type="button" data-route="identity"><i data-lucide="shield-check"></i><span id="identity-note-text">校内身份已验证<br><small>公开内容默认实名</small></span></button>
+        <button class="profile-button" type="button" data-route="preferences"><span class="avatar">张</span><span><strong>张三</strong><small>计算机科学 · 大三</small></span><i data-lucide="sliders-horizontal"></i></button>
       </div>
-      <label class="create-post-anon">
-        <input type="checkbox" id="anon-toggle"> 匿名发布
-      </label>
-    </div>
-    <input type="text" class="create-post-title-input" placeholder="标题（选填）">
-    <textarea class="create-post-textarea" placeholder="分享点什么..."></textarea>
-    <div class="create-post-tools">
-      <div class="create-post-tool" onclick="showToast('图片上传开发中')">📷 图片</div>
-      <div class="create-post-tool" onclick="showToast('标签功能开发中')">🏷️ 标签</div>
-      <div class="create-post-tool" onclick="showToast('话题功能开发中')"># 话题</div>
-    </div>
-    <button class="primary-btn" onclick="handleCreatePost()">发布</button>
-  </div>
-</div>
+    </aside>
 
-<!-- Search Results Page -->
-<div id="page-search-results" class="page-content sub-page" style="display:none;">
-  <div id="search-results-container"></div>
-</div>
+    <main class="main-column">
+      <header class="topbar">
+        <button class="mobile-brand" type="button" data-route="feed" aria-label="返回校园话题"><span class="brand-mark">S</span><strong>SURF</strong></button>
+        <form class="global-search" id="global-search-form" role="search">
+          <i data-lucide="search" aria-hidden="true"></i>
+          <input id="global-search" type="search" placeholder="搜索话题、Tag、资料、问答或活动" aria-label="聚合搜索" autocomplete="off">
+          <kbd>⌘ K</kbd>
+        </form>
+        <div class="top-actions">
+          <button class="icon-button" id="top-notifications" type="button" data-route="notifications" aria-label="通知"><i data-lucide="bell"></i><span class="unread-dot" id="unread-dot" hidden></span></button>
+          <button class="avatar top-avatar" type="button" data-route="identity" aria-label="身份与登录">张</button>
+        </div>
+      </header>
 
-<!-- ===== AI Assistant ===== -->
-<div id="ai-chat-overlay" style="display:none;">
-  <div id="ai-chat-panel">
-    <div id="ai-chat-header">
-      <span style="font-size:16px;font-weight:600;">🤖 校园 AI 助手</span>
-      <span id="ai-chat-close" onclick="closeAIChat()">✕</span>
-    </div>
-    <div id="ai-chat-messages">
-      <div class="ai-msg ai-bot">
-        <div class="ai-msg-bubble">你好！👋 我是你的校园 AI 助手。可以问我课程信息、活动推荐、学术问题，或者随便聊聊～</div>
+      <div class="content" id="content">
+        <div class="view-root" id="view-root" aria-live="polite"></div>
       </div>
-    </div>
-    <div id="ai-chat-input-area">
-      <input type="text" id="ai-chat-input" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter')sendAIMessage()">
-      <button id="ai-chat-send" onclick="sendAIMessage()">发送</button>
-    </div>
+    </main>
+
+    <aside class="context-rail" aria-label="校园速览">
+      <section class="rail-section">
+        <div class="rail-heading"><h2>重要通知</h2><button type="button" data-route="notifications">全部</button></div>
+        <div id="rail-notifications" class="rail-list"><div class="rail-skeleton"></div><div class="rail-skeleton short"></div></div>
+      </section>
+      <section class="rail-section">
+        <div class="rail-heading"><h2>热门 Tag</h2><span>今天</span></div>
+        <div id="rail-tags" class="hot-tags"><div class="rail-skeleton"></div></div>
+      </section>
+      <section class="rail-section rail-event" id="rail-event">
+        <div class="rail-kicker">下一场校园活动</div>
+        <h2>正在加载活动</h2>
+      </section>
+      <p class="rail-policy"><i data-lucide="badge-check"></i>仅展示校内成员和已审核内容。匿名树洞与实名公共话题保持隔离。</p>
+    </aside>
   </div>
-</div>
 
-<!-- AI Floating Button -->
-<div id="ai-fab" onclick="openAIChat()">🤖</div>
+  <nav class="mobile-nav" aria-label="移动端导航">
+    <button class="is-active" type="button" data-route="feed"><i data-lucide="messages-square"></i><span>话题</span></button>
+    <button type="button" data-route="search"><i data-lucide="search"></i><span>发现</span></button>
+    <button class="mobile-compose" id="mobile-compose" type="button" aria-label="发布话题"><i data-lucide="plus"></i></button>
+    <button type="button" data-route="notifications"><i data-lucide="bell"></i><span>通知</span></button>
+    <button type="button" data-route="resources"><i data-lucide="book-open"></i><span>资料</span></button>
+    <button type="button" data-route="opportunities"><i data-lucide="users-round"></i><span>组队</span></button>
+    <button type="button" data-route="directory"><i data-lucide="contact-round"></i><span>通讯</span></button>
+    <button type="button" data-route="treehole"><i data-lucide="lock-keyhole"></i><span>树洞</span></button>
+  </nav>
 
-<!-- ===== Toast ===== -->
-<div id="toast" class="toast"></div>
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
 
-<script src="demo.js"></script>
+  <dialog class="media-dialog" id="media-dialog">
+    <button class="dialog-close icon-button" type="button" data-close-media aria-label="关闭"><i data-lucide="x"></i></button>
+    <div id="media-dialog-content"></div>
+  </dialog>
+
+  <dialog class="report-dialog" id="report-dialog">
+    <form method="dialog" id="report-form">
+      <div class="dialog-head"><div><span class="eyebrow">内容治理</span><h2>举报这篇话题</h2></div><button class="icon-button" value="cancel" aria-label="关闭"><i data-lucide="x"></i></button></div>
+      <input type="hidden" id="report-post-id">
+      <label class="field-label" for="report-reason">原因</label>
+      <select class="field" id="report-reason" required><option value="">请选择原因</option><option>垃圾广告或引流</option><option>人身攻击或骚扰</option><option>虚假或误导信息</option><option>侵犯隐私</option><option>其他不当内容</option></select>
+      <p class="dialog-note">举报会进入管理端审核队列，不会向帖子作者公开你的身份。</p>
+      <button class="button button-danger" type="submit">提交举报</button>
+    </form>
+  </dialog>
+
+  <script src="demo.js" defer></script>
 </body>
 </html>

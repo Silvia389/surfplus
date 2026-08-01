@@ -1,0 +1,17 @@
+{
+  "opportunities": [
+    {
+      "id": "opp_1",
+      "title": "AI 黑客松：组建 2-3 人跨学科小队",
+      "kind": "比赛招募",
+      "description": "围绕校园真实问题完成一个可演示的 AI 原型，已有队长和产品方向，欢迎补充算法与前端能力。",
+      "skills": ["AI", "Python", "前端"],
+      "tags": ["AI", "黑客松", "Python"],
+      "deadline": "2026-08-15",
+      "capacity": 3,
+      "owner": "张三",
+      "status": "published",
+      "applications": []
+    }
+  ]
+}

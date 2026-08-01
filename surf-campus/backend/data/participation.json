@@ -1,0 +1,9 @@
+{
+  "u001": {
+    "points": 120,
+    "records": [
+      {"type": "event", "label": "AI 学术讲座：大语言模型前沿", "points": 20, "time": "2026-07-28"},
+      {"type": "post", "label": "分享 CSE101 复习资料", "points": 30, "time": "2026-07-24"}
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "u001": {
+    "sections": ["academic", "campus-life", "opportunities", "teams"],
+    "interests": ["AI", "CSE101"],
+    "show_context_rail": true,
+    "content_language": "mixed"
+  }
+}

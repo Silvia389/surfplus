@@ -8,7 +8,9 @@
       "organizer": "计算机学院",
       "description": "特邀牛津大学王教授分享大语言模型最新研究进展",
       "registered": 50,
-      "capacity": 100
+      "capacity": 100,
+      "status": "published",
+      "registrations": []
     },
     {
       "id": "evt_2",
@@ -18,7 +20,9 @@
       "organizer": "社团联合会",
       "description": "新学期社团招新，60+社团等你来加入",
       "registered": 120,
-      "capacity": 500
+      "capacity": 500,
+      "status": "published",
+      "registrations": []
     },
     {
       "id": "evt_3",
@@ -28,7 +32,9 @@
       "organizer": "英语语言中心",
       "description": "和外教一起聊跨文化交流，提升口语",
       "registered": 19,
-      "capacity": 30
+      "capacity": 30,
+      "status": "published",
+      "registrations": []
     },
     {
       "id": "evt_4",
@@ -38,7 +44,9 @@
       "organizer": "就业指导中心",
       "description": "简历撰写、面试技巧、职业规划一站搞定",
       "registered": 33,
-      "capacity": 50
+      "capacity": 50,
+      "status": "published",
+      "registrations": []
     }
   ],
   "clubs": [

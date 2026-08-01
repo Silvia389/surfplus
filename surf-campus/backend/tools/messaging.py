@@ -54,7 +54,8 @@ def _start_chat(target_id, message):
         "created": time.strftime("%Y-%m-%d %H:%M"),
     }
     conversations.append(conv)
-    _save_json("messages.json", {"conversations": conversations})
+    data["conversations"] = conversations
+    _save_json("messages.json", data)
     return json.dumps({"status": "ok", "chat_id": chat_id, "message": "消息已发送"})
 
 
@@ -68,7 +69,8 @@ def _send_message(chat_id, content):
                 "content": content,
                 "time": time.strftime("%Y-%m-%d %H:%M"),
             })
-            _save_json("messages.json", {"conversations": conversations})
+            data["conversations"] = conversations
+            _save_json("messages.json", data)
             return json.dumps({"status": "ok", "message": "消息已发送"})
     return json.dumps({"error": "会话未找到"})
 

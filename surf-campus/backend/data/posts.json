@@ -1,10 +1,31 @@
 {
   "posts": [
     {
+      "id": "post_1785540031_9",
+      "title": "",
+      "content": "P0 浏览器闭环 1785540029806",
+      "section": "academic",
+      "anonymous": false,
+      "author": "张三",
+      "time": "2026-08-01 07:20",
+      "likes": 0,
+      "comments_count": 0,
+      "comments": [],
+      "tags": [
+        "CSE101"
+      ],
+      "media": [],
+      "status": "pending",
+      "moderation_note": ""
+    },
+    {
       "id": "post_1784790635_8",
       "title": "",
       "content": "哈喽",
-      "section": "general",
+      "section": "campus-life",
+      "tags": [],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-23 15:10",
       "likes": 0,
@@ -15,7 +36,10 @@
       "id": "post_1784789581_7",
       "title": "你好",
       "content": "你好",
-      "section": "general",
+      "section": "campus-life",
+      "tags": [],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-23 14:53",
       "likes": 1,
@@ -26,7 +50,10 @@
       "id": "post_1784785300_6",
       "title": "",
       "content": "嗨！",
-      "section": "general",
+      "section": "campus-life",
+      "tags": [],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-23 13:41",
       "likes": 1,
@@ -44,7 +71,10 @@
       "id": "post_1784775244_5",
       "title": "",
       "content": "大家好！",
-      "section": "general",
+      "section": "campus-life",
+      "tags": [],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-23 10:54",
       "likes": 3,
@@ -68,7 +98,13 @@
       "id": "post_1",
       "title": "今天图书馆好多人",
       "content": "今天图书馆从早上就满人了，期末氛围拉满！大家加油复习💪",
-      "section": "general",
+      "section": "campus-life",
+      "tags": [
+        "图书馆",
+        "期末复习"
+      ],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-22 10:30",
       "likes": 15,
@@ -92,18 +128,39 @@
       "id": "post_2",
       "title": "求组队参加黑客松",
       "content": "下个月有个AI黑客松比赛，找2-3个队友，会Python/ML的优先！感兴趣dd",
-      "section": "recruitment",
+      "section": "teams",
+      "tags": [
+        "AI",
+        "黑客松",
+        "Python"
+      ],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-21 15:20",
-      "likes": 8,
-      "comments_count": 5,
-      "comments": []
+      "likes": 19,
+      "comments_count": 1,
+      "comments": [
+        {
+          "id": "cmt_1785573484",
+          "content": "你好",
+          "anonymous": false,
+          "time": "2026-08-01 16:38",
+          "ai_mention_count": 0,
+          "ai_status": "none"
+        }
+      ]
     },
     {
       "id": "post_3",
       "title": "吐槽一下食堂",
       "content": "食堂今天中午的菜真的好咸...有没有同感的",
-      "section": "general",
+      "section": "treehole",
+      "tags": [
+        "食堂"
+      ],
+      "media": [],
+      "status": "published",
       "anonymous": true,
       "time": "2026-07-21 12:00",
       "likes": 22,
@@ -122,6 +179,12 @@
       "title": "CSE101 期中考试回忆",
       "content": "刚考完CSE101期中，分享一下题目类型供学弟学妹参考：选择题20道、编程题2道、简答题5道。重点是list和dict操作。",
       "section": "academic",
+      "tags": [
+        "CSE101",
+        "期末复习"
+      ],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-20 17:00",
       "likes": 35,
@@ -132,12 +195,25 @@
       "id": "post_5",
       "title": "周末羽毛球约球",
       "content": "周六下午2点体育馆，2缺2，欢迎来玩~水平不限",
-      "section": "general",
+      "section": "campus-life",
+      "tags": [
+        "羽毛球",
+        "体育馆"
+      ],
+      "media": [],
+      "status": "published",
       "anonymous": false,
       "time": "2026-07-19 20:00",
-      "likes": 12,
-      "comments_count": 6,
-      "comments": []
+      "likes": 33,
+      "comments_count": 1,
+      "comments": [
+        {
+          "id": "cmt_1785522081",
+          "content": "nih1",
+          "anonymous": false,
+          "time": "2026-08-01 02:21"
+        }
+      ]
     }
   ]
 }

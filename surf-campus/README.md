@@ -45,9 +45,30 @@ python main.py
 - 健康检查: http://localhost:8000/health
 - AI 对话: POST http://localhost:8000/api/chat
 
-### 启动前端
+### 学生端与管理端
 
-用浏览器打开 `frontend/index.html` 即可。
+后端启动后：
+
+- 学生端：`http://localhost:8000/`，单列校园话题流、发布审核、Tag 聚合、聚合搜索、资料/问答和活动。
+- 管理端：`http://localhost:8000/admin/`，Mock 角色可切换为平台管理员、内容审核员、教师/助教、活动组织者或学生（权限拒绝测试）。
+- 管理写操作统一使用 `/api/admin/*`，前端不直接编辑 `backend/data/*.json`。
+- P0 媒体存储在 `backend/uploads/`，资料文件存储在 `backend/resource_files/`；生产对象存储和真实 SSO 留在 P3。
+
+身份权限：手机验证码登录默认只允许浏览、搜索和收藏；绑定 XJTLU 校园身份后才允许发帖、评论和课程提问。真实登录入口需要 `XJTLU_OAUTH_CLIENT_ID`、`XJTLU_OAUTH_CLIENT_SECRET`、`XJTLU_OAUTH_REDIRECT_URI`、`XJTLU_OAUTH_TOKEN_URL` 和 `XJTLU_OAUTH_USERINFO_URL`，回调会校验一次性 state、issuer 和校园邮箱域名；scope 默认是 `openid profile email`，未拿到学校注册信息时不会伪造 token 校验，本地 `mock-bind` 只用于开发验收。
+
+### 验证
+
+```bash
+cd surfplus/surf-campus
+python3 -m py_compile backend/main.py backend/tools/*.py
+/Users/hanmingyu/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node tests/browser-smoke.cjs
+# 服务运行后可执行完整本地回归（脚本会自动使用 PATH 中的 Node 或 Codex 本地运行时）
+./scripts/verify-local.sh
+```
+
+`tests/vertical-e2e.cjs` 需要在临时 `SURF_DATA_DIR` 服务上运行，用于验证“学生发布 -> 管理审核 -> 学生可见”，不会污染默认 Mock 数据。
+
+启动、数据隔离、Mock 角色和生产替换边界见 [`docs/DELIVERY.md`](docs/DELIVERY.md)。
 
 ---
 
@@ -82,6 +103,11 @@ surf-campus/
 │   ├── SKILL.md                     # Skill 定义（WorkBuddy 可导入）
 │   └── SYSTEM_PROMPT.md             # AI 校园助手系统 Prompt
 │
+├── admin/                           # 管理端：审核、通知、资料问答、活动、举报、审计
+│   ├── index.html
+│   ├── admin.css
+│   └── admin.js
+├── tests/                           # 浏览器冒烟与垂直闭环验证
 ├── backend/                         # 后端 API 服务
 │   ├── main.py                      # FastAPI 入口
 │   ├── agent.py                     # AI Agent 引擎
@@ -100,7 +126,7 @@ surf-campus/
 │       ├── courses.json             # 课程数据
 │       └── users.json               # 用户数据
 │
-└── frontend/                        # Demo 前端（老师提供）
+└── frontend/                        # 学生端：校园话题、发现、资料、活动
     ├── index.html                   # 主页面
     ├── demo.css                     # 样式
     └── demo.js                      # JavaScript

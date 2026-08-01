@@ -1,8 +1,9 @@
 """课程与学术中心工具"""
 import json
 import random
+import time
 from typing import Optional
-from . import _load_json
+from . import _load_json, _save_json
 
 
 def academic_center(action: str, params: dict = None) -> str:
@@ -80,15 +81,28 @@ def _search_resources(keyword, course=None):
     resources = data.get("resources", [])
     results = []
     for r in resources:
+        if r.get("status", "published") != "published":
+            continue
         if keyword and keyword.lower() not in r.get("name", "").lower():
             continue
         if course and course.lower() not in r.get("course", "").lower():
             continue
         results.append({
+            "id": r.get("id", ""),
             "名称": r["name"],
             "课程": r.get("course", ""),
             "类型": r.get("type", ""),
             "上传者": r.get("uploader", ""),
+            "description": r.get("description", ""),
+            "status": r.get("status", "published"),
+            "semester": r.get("semester", "2026 Summer"),
+            "year": r.get("year", "all"),
+            "term": r.get("term", "all"),
+            "major": r.get("major", "all"),
+            "file_url": r.get("file_url"),
+            "file_name": r.get("file_name"),
+            "mime": r.get("mime"),
+            "size": r.get("size", 0),
         })
     if not results:
         return json.dumps({"message": "没有找到匹配的资料"})
@@ -100,12 +114,17 @@ def _qa_search(keyword):
     qa = data.get("qa", [])
     results = []
     for q in qa:
+        if q.get("status", "published") != "published":
+            continue
         if keyword and keyword.lower() not in q.get("question", "").lower():
             continue
         results.append({
+            "id": q.get("id", ""),
             "课程": q.get("course", ""),
             "问题": q["question"][:60] + ("..." if len(q["question"]) > 60 else ""),
             "回答数": q.get("answers", 0),
+            "answers_detail": q.get("answers_detail", []),
+            "status": q.get("status", "published"),
         })
     if not results:
         return json.dumps({"message": "没有找到相关问答"})
@@ -115,10 +134,25 @@ def _qa_search(keyword):
 def _qa_ask(course, question, anonymous=False):
     if not course or not question:
         return json.dumps({"error": "课程和问题不能为空"})
+    data = _load_json("courses.json")
+    questions = data.setdefault("qa", [])
+    item = {
+        "id": f"qa_{int(time.time())}_{len(questions)}",
+        "course": course.strip(),
+        "question": question.strip(),
+        "anonymous": bool(anonymous),
+        "answers": 0,
+        "answers_detail": [],
+        "status": "published",
+        "created_at": time.strftime("%Y-%m-%d %H:%M"),
+    }
+    questions.insert(0, item)
+    _save_json("courses.json", data)
     anon_tag = "（匿名）" if anonymous else ""
     return json.dumps({
         "status": "ok",
         "message": f"问题已提交到「{course}」问答区{anon_tag}，等待回复~",
+        "question": item,
     }, ensure_ascii=False)
 
 

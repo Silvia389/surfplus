@@ -1,0 +1,27 @@
+{
+  "years": [
+    {"value": "year1", "label": "大一"},
+    {"value": "year2", "label": "大二"},
+    {"value": "year3", "label": "大三"},
+    {"value": "year4", "label": "大四"}
+  ],
+  "terms": [
+    {"value": "autumn", "label": "上学期"},
+    {"value": "spring", "label": "下学期"}
+  ],
+  "majors": [
+    {"value": "common", "label": "大一共同课程", "years": ["year1"]},
+    {"value": "computer-science", "label": "计算机科学与技术", "years": ["year2", "year3", "year4"]},
+    {"value": "data-science", "label": "数据科学", "years": ["year2", "year3", "year4"]},
+    {"value": "mathematics", "label": "数学科学", "years": ["year2", "year3", "year4"]},
+    {"value": "all-majors", "label": "跨专业 / 通识", "years": ["year1", "year2", "year3", "year4"]}
+  ],
+  "courses": [
+    {"value": "CSE101", "label": "CSE101 程序设计基础", "year": "year1", "term": "autumn", "major": "common"},
+    {"value": "ENG103", "label": "ENG103 学术英语写作", "year": "year1", "term": "autumn", "major": "common"},
+    {"value": "PHY102", "label": "PHY102 大学物理", "year": "year1", "term": "spring", "major": "common"},
+    {"value": "MTH201", "label": "MTH201 线性代数", "year": "year2", "term": "autumn", "major": "all-majors"},
+    {"value": "CSE205", "label": "CSE205 数据结构", "year": "year2", "term": "spring", "major": "computer-science"},
+    {"value": "ECO201", "label": "ECO201 微观经济学", "year": "year2", "term": "autumn", "major": "all-majors"}
+  ]
+}

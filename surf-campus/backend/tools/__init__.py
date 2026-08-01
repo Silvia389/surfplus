@@ -2,7 +2,7 @@
 import json
 import os
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+DATA_DIR = os.environ.get("SURF_DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "data"))
 
 
 def _load_json(filename: str) -> dict:

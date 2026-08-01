@@ -1,5 +1,6 @@
 """社区内容工具"""
 import json
+import re
 import time
 from typing import Optional
 from . import _load_json, _save_json
@@ -31,9 +32,34 @@ def community(action: str, params: dict = None) -> str:
         return json.dumps({"error": f"未知操作: {action}"})
 
 
+ALLOWED_SECTIONS = {"academic", "campus-life", "opportunities", "teams", "treehole"}
+AI_MENTION_RE = re.compile(r"(?<![\w@])@ai\b", re.IGNORECASE)
+
+
+def _ai_mention_count(value):
+    """Count explicit @AI mentions while avoiding email-like strings."""
+    return len(AI_MENTION_RE.findall(str(value or "")))
+
+
+def _normalize_tags(tags):
+    normalized = []
+    for raw_tag in tags or []:
+        tag = " ".join(str(raw_tag).strip().lstrip("#").split())[:24]
+        if tag and tag.casefold() not in {item.casefold() for item in normalized}:
+            normalized.append(tag)
+    return normalized[:5]
+
+
 def _get_feed(section=None, page=1):
     data = _load_json("posts.json")
+    collection_data = _load_json("collections.json")
+    collections = set(collection_data.get("collections", []))
+    collection_tags = collection_data.get("tags", {})
+    likes_by_user = _load_json("likes.json").get("users", {})
+    liked_posts = set(likes_by_user.get("u001", []))
     posts = data.get("posts", [])
+
+    posts = [p for p in posts if p.get("status", "published") == "published" and p.get("section") != "treehole"]
 
     if section:
         posts = [p for p in posts if p.get("section") == section]
@@ -48,12 +74,20 @@ def _get_feed(section=None, page=1):
     for p in page_posts:
         results.append({
             "id": p.get("id", ""),
-            "内容": p["content"][:100] + ("..." if len(p["content"]) > 100 else ""),
-            "板块": p.get("section", ""),
-            "匿名": p.get("anonymous", False),
-            "时间": p.get("time", ""),
-            "点赞": p.get("likes", 0),
-            "评论": p.get("comments_count", 0),
+            "title": p.get("title", ""),
+            "content": p.get("content", ""),
+            "section": p.get("section", "campus-life"),
+            "anonymous": p.get("anonymous", False),
+            "author": p.get("author", "校园成员"),
+            "time": p.get("time", ""),
+            "likes": p.get("likes", 0),
+            "liked": p.get("id", "") in liked_posts,
+            "comments_count": p.get("comments_count", 0),
+            "tags": p.get("tags", []),
+            "media": p.get("media", []),
+            "status": p.get("status", "published"),
+            "collected": p.get("id", "") in collections,
+            "collection_tags": collection_tags.get(p.get("id", ""), []),
         })
 
     return json.dumps({
@@ -63,10 +97,13 @@ def _get_feed(section=None, page=1):
     }, ensure_ascii=False, indent=2)
 
 
-def _publish_post(content, section="general", anonymous=False, title=None):
+def _publish_post(content, section="campus-life", anonymous=False, title=None, tags=None, media=None, status="pending"):
     if not content.strip():
         return json.dumps({"error": "内容不能为空"})
 
+    section = section if section in ALLOWED_SECTIONS else "campus-life"
+    normalized_tags = _normalize_tags(tags)
+    ai_mention_count = _ai_mention_count(content)
     data = _load_json("posts.json")
     posts = data.get("posts", [])
     new_post = {
@@ -75,18 +112,26 @@ def _publish_post(content, section="general", anonymous=False, title=None):
         "content": content,
         "section": section,
         "anonymous": anonymous,
+        "author": "匿名同学" if anonymous else "张三",
         "time": time.strftime("%Y-%m-%d %H:%M"),
         "likes": 0,
         "comments_count": 0,
         "comments": [],
+        "tags": normalized_tags,
+        "media": media or [],
+        "status": status,
+        "moderation_note": "",
+        "ai_mention_count": ai_mention_count,
+        "ai_status": "requested" if ai_mention_count else "none",
     }
     posts.insert(0, new_post)
     _save_json("posts.json", {"posts": posts})
 
     return json.dumps({
         "status": "ok",
-        "message": "发布成功！" + ("（已匿名）" if anonymous else ""),
+        "message": "内容已提交审核" + ("（前台将保持匿名）" if anonymous else ""),
         "post_id": new_post["id"],
+        "status": status,
     }, ensure_ascii=False)
 
 
@@ -102,27 +147,66 @@ def _add_comment(post_id, content, anonymous=False):
                 "content": content,
                 "anonymous": anonymous,
                 "time": time.strftime("%Y-%m-%d %H:%M"),
+                "ai_mention_count": _ai_mention_count(content),
+                "ai_status": "requested" if _ai_mention_count(content) else "none",
             }
             p.setdefault("comments", []).append(comment)
             p["comments_count"] = len(p["comments"])
             _save_json("posts.json", {"posts": posts})
-            return json.dumps({"status": "ok", "message": "评论成功"})
+            return json.dumps({
+                "status": "ok",
+                "message": "评论成功",
+                "comment_id": comment["id"],
+                "ai_requested": bool(comment["ai_mention_count"]),
+            })
     return json.dumps({"error": "帖子未找到"})
 
 
-def _like_post(post_id):
+def _like_post(post_id, user_id="u001"):
     data = _load_json("posts.json")
     posts = data.get("posts", [])
+    likes_data = _load_json("likes.json") or {"users": {}}
+    user_likes = likes_data.setdefault("users", {}).setdefault(user_id, [])
     for p in posts:
         if p.get("id") == post_id:
-            p["likes"] = p.get("likes", 0) + 1
+            if post_id in user_likes:
+                user_likes.remove(post_id)
+                p["likes"] = max(0, p.get("likes", 0) - 1)
+                liked = False
+            else:
+                user_likes.append(post_id)
+                p["likes"] = p.get("likes", 0) + 1
+                liked = True
             _save_json("posts.json", {"posts": posts})
-            return json.dumps({"status": "ok", "likes": p["likes"]})
+            _save_json("likes.json", likes_data)
+            return json.dumps({"status": "ok", "likes": p["likes"], "liked": liked})
     return json.dumps({"error": "帖子未找到"})
 
 
-def _collect_post(post_id):
-    return json.dumps({"status": "ok", "message": "已收藏"})
+def _collect_post(post_id, tag=""):
+    data = _load_json("posts.json")
+    if not any(p.get("id") == post_id and p.get("status", "published") == "published" and p.get("section") != "treehole" for p in data.get("posts", [])):
+        return json.dumps({"error": "帖子未找到或不可收藏"}, ensure_ascii=False)
+    collection_data = _load_json("collections.json") or {"collections": []}
+    collections = collection_data.setdefault("collections", [])
+    tags_by_post = collection_data.setdefault("tags", {})
+    clean_tag = " ".join(str(tag or "").strip().lstrip("#").split())[:24]
+    if clean_tag:
+        if post_id not in collections:
+            collections.insert(0, post_id)
+        tags = tags_by_post.setdefault(post_id, [])
+        if clean_tag.casefold() not in {item.casefold() for item in tags}:
+            tags.append(clean_tag)
+        collected = True
+    elif post_id in collections:
+        collections.remove(post_id)
+        tags_by_post.pop(post_id, None)
+        collected = False
+    else:
+        collections.insert(0, post_id)
+        collected = True
+    _save_json("collections.json", collection_data)
+    return json.dumps({"status": "ok", "collected": collected, "tags": tags_by_post.get(post_id, []), "message": f"已收藏到 #{clean_tag}" if clean_tag else ("已收藏" if collected else "已取消收藏")}, ensure_ascii=False)
 
 
 def _report_post(post_id, reason):

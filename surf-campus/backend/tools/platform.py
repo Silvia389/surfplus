@@ -122,7 +122,9 @@ def notifications(action: str, params: dict = None) -> str:
 def _list_notifications(unread_only=False):
     from datetime import datetime
     data = _load_json("messages.json")
-    notifs = data.get("notifications", [])
+    notifs = [n for n in data.get("notifications", []) if n.get("published", True) and n.get("status", "published") == "published"]
+    notifs.sort(key=lambda item: item.get("time", ""), reverse=True)
+    notifs.sort(key=lambda item: item.get("pinned", False), reverse=True)
     if unread_only:
         notifs = [n for n in notifs if not n.get("read", False)]
     results = []
@@ -133,6 +135,11 @@ def _list_notifications(unread_only=False):
             "内容": n.get("content", ""),
             "时间": n.get("time", ""),
             "已读": n.get("read", False),
+            "priority": n.get("priority", "normal"),
+            "pinned": n.get("pinned", False),
+            "saved_for_later": n.get("saved_for_later", False),
+            "processed": n.get("processed", False),
+            "type": n.get("type", "system"),
         }
         # 活动类型通知：动态计算倒计时
         if n.get("type") == "event" and n.get("event_time"):

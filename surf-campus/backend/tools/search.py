@@ -109,10 +109,13 @@ def _search_directory(keyword):
         if keyword and keyword.lower() not in u.get("name", "").lower() and keyword.lower() not in u.get("department", "").lower():
             continue
         results.append({
+            "id": u.get("id", ""),
             "姓名": u["name"],
             "角色": u.get("role", ""),
             "学院": u.get("department", ""),
             "邮箱": u.get("email", ""),
+            "年级": u.get("year", ""),
+            "tags": u.get("tags", []),
         })
     if not results:
         return json.dumps({"message": "没有找到匹配的师生"})

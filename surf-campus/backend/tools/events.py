@@ -17,6 +17,10 @@ def clubs_events(action: str, params: dict = None) -> str:
         return _list_events(params.get("month"))
     elif action == "register_event":
         return _register_event(params.get("event_id", ""))
+    elif action == "cancel_event":
+        return _cancel_event(params.get("event_id", ""))
+    elif action == "set_reminder":
+        return _set_reminder(params.get("event_id", ""), params.get("enabled", True))
     else:
         return json.dumps({"error": f"未知操作: {action}"})
 
@@ -50,6 +54,8 @@ def _list_events(month=None):
     events = data.get("events", [])
     results = []
     for e in events:
+        if e.get("status", "published") != "published":
+            continue
         if month and month not in e.get("time", ""):
             continue
         results.append({
@@ -59,6 +65,11 @@ def _list_events(month=None):
             "地点": e.get("location", ""),
             "组织": e.get("organizer", ""),
             "报名": e.get("registered", 0),
+            "description": e.get("description", ""),
+            "capacity": e.get("capacity", 0),
+            "status": e.get("status", "published"),
+            "registered_by_me": any(item.get("user_id") == "u001" for item in e.get("registrations", [])),
+            "reminder_enabled": next((item.get("reminder", False) for item in e.get("registrations", []) if item.get("user_id") == "u001"), False),
         })
     if not results:
         return json.dumps({"message": "暂无可报名的活动"})
@@ -70,7 +81,15 @@ def _register_event(event_id):
     events = data.get("events", [])
     for e in events:
         if e.get("id") == event_id:
+            if e.get("status", "published") != "published":
+                return json.dumps({"error": "活动当前不可报名"}, ensure_ascii=False)
+            if e.get("capacity") and e.get("registered", 0) >= e.get("capacity", 0):
+                return json.dumps({"error": "活动名额已满"}, ensure_ascii=False)
+            registrations = e.setdefault("registrations", [])
+            if any(item.get("user_id") == "u001" for item in registrations):
+                return json.dumps({"status": "ok", "message": f"你已报名「{e['title']}」"}, ensure_ascii=False)
             e["registered"] = e.get("registered", 0) + 1
+            registrations.append({"user_id": "u001", "name": "张三", "time": time.strftime("%Y-%m-%d %H:%M")})
             _save_json("events.json", data)
             # 写入通知（带活动时间，用于动态倒计时）
             msg_data = _load_json("messages.json")
@@ -92,6 +111,39 @@ def _register_event(event_id):
     return json.dumps({"error": "活动未找到"}, ensure_ascii=False)
 
 
+def _cancel_event(event_id):
+    data = _load_json("events.json")
+    for event in data.get("events", []):
+        if event.get("id") != event_id:
+            continue
+        registrations = event.setdefault("registrations", [])
+        before = len(registrations)
+        event["registrations"] = [item for item in registrations if item.get("user_id") != "u001"]
+        if len(event["registrations"]) == before:
+            return json.dumps({"status": "ok", "message": "你尚未报名该活动"}, ensure_ascii=False)
+        event["registered"] = max(0, int(event.get("registered", 0)) - 1)
+        _save_json("events.json", data)
+        messages = _load_json("messages.json")
+        messages["notifications"] = [item for item in messages.get("notifications", []) if not (item.get("event_id") == event_id and item.get("type") == "event")]
+        _save_json("messages.json", messages)
+        return json.dumps({"status": "ok", "message": f"已取消报名「{event.get('title', '活动')}」"}, ensure_ascii=False)
+    return json.dumps({"error": "活动未找到"}, ensure_ascii=False)
+
+
+def _set_reminder(event_id, enabled=True):
+    data = _load_json("events.json")
+    for event in data.get("events", []):
+        if event.get("id") != event_id:
+            continue
+        registration = next((item for item in event.setdefault("registrations", []) if item.get("user_id") == "u001"), None)
+        if not registration:
+            return json.dumps({"error": "请先报名活动，再设置提醒"}, ensure_ascii=False)
+        registration["reminder"] = bool(enabled)
+        _save_json("events.json", data)
+        return json.dumps({"status": "ok", "reminder_enabled": registration["reminder"], "message": "提醒已开启" if registration["reminder"] else "提醒已关闭"}, ensure_ascii=False)
+    return json.dumps({"error": "活动未找到"}, ensure_ascii=False)
+
+
 # ─── 工具定义 ───
 
 CLUBS_TOOL = {
@@ -104,7 +156,7 @@ CLUBS_TOOL = {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list_clubs", "club_info", "list_events", "register_event"],
+                    "enum": ["list_clubs", "club_info", "list_events", "register_event", "cancel_event", "set_reminder"],
                 },
                 "params": {
                     "type": "object",
@@ -112,6 +164,7 @@ CLUBS_TOOL = {
                         "club_id": {"type": "string"},
                         "month": {"type": "string"},
                         "event_id": {"type": "string"},
+                        "enabled": {"type": "boolean"},
                     },
                 },
             },

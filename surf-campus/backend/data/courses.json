@@ -21,15 +21,15 @@
     { "course": "PHY102", "exam": "期中考试", "score": 72, "total": 100, "grade": "B" }
   ],
   "resources": [
-    { "name": "CSE101 Week 3 课件", "course": "CSE101", "type": "课件", "uploader": "张明" },
-    { "name": "Python 编程入门指南", "course": "CSE101", "type": "参考资料", "uploader": "王小明" },
-    { "name": "线性代数公式汇总", "course": "MTH201", "type": "笔记", "uploader": "李华" },
-    { "name": "学术英语写作模板", "course": "ENG103", "type": "模板", "uploader": "Sarah Chen" },
-    { "name": "大学物理习题解答 Ch3", "course": "PHY102", "type": "习题解答", "uploader": "王强" }
+    { "id": "resource_cse101_week3", "name": "CSE101 Week 3 课件", "course": "CSE101", "type": "课件", "uploader": "张明", "year": "year1", "term": "autumn", "major": "common", "status": "published" },
+    { "id": "resource_python_intro", "name": "Python 编程入门指南", "course": "CSE101", "type": "参考资料", "uploader": "王小明", "year": "year1", "term": "autumn", "major": "common", "status": "published" },
+    { "id": "resource_mth201_formula", "name": "线性代数公式汇总", "course": "MTH201", "type": "笔记", "uploader": "李华", "year": "year2", "term": "autumn", "major": "all-majors", "status": "published" },
+    { "id": "resource_eng103_template", "name": "学术英语写作模板", "course": "ENG103", "type": "模板", "uploader": "Sarah Chen", "year": "year1", "term": "autumn", "major": "common", "status": "published" },
+    { "id": "resource_phy102_ch3", "name": "大学物理习题解答 Ch3", "course": "PHY102", "type": "习题解答", "uploader": "王强", "year": "year1", "term": "spring", "major": "common", "status": "published" }
   ],
   "qa": [
-    { "course": "CSE101", "question": "Python 中列表和元组的区别是什么？", "answers": 3 },
-    { "course": "MTH201", "question": "矩阵的秩怎么计算？有没有简便方法？", "answers": 2 },
-    { "course": "PHY102", "question": "期末实验报告格式有什么要求？", "answers": 1 }
+    { "id": "qa_cse101_list_tuple", "course": "CSE101", "question": "Python 中列表和元组的区别是什么？", "answers": 3, "answers_detail": [], "status": "published" },
+    { "id": "qa_mth201_rank", "course": "MTH201", "question": "矩阵的秩怎么计算？有没有简便方法？", "answers": 2, "answers_detail": [], "status": "published" },
+    { "id": "qa_phy102_report", "course": "PHY102", "question": "期末实验报告格式有什么要求？", "answers": 1, "answers_detail": [], "status": "published" }
   ]
 }

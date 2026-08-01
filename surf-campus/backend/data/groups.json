@@ -1,0 +1,14 @@
+{
+  "groups": [
+    {
+      "id": "group_opp_1",
+      "opportunity_id": "opp_1",
+      "name": "AI 黑客松项目组",
+      "description": "已申请或已加入招募的同学可在这里同步项目进度。",
+      "members": ["u001", "u003"],
+      "messages": [
+        {"id": "group_msg_1", "sender": "王小明", "content": "我可以先搭一个数据处理基线。", "time": "2026-07-30 19:20"}
+      ]
+    }
+  ]
+}
