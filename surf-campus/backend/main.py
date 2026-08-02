@@ -1796,4 +1796,6 @@ app.mount("/", StaticFiles(directory=_frontend_dir), name="frontend")
 # ─── 启动 ───
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", "8000"))
+    reload_enabled = os.environ.get("UVICORN_RELOAD", "false").strip().lower() == "true"
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload_enabled)
