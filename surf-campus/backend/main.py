@@ -1,11 +1,14 @@
 """XJTLU Virtual Campus — 后端 API"""
 import base64
 from collections import deque
+from email.message import EmailMessage
+import hashlib
 import secrets
 import json
 import logging
 import os
 import re
+import smtplib
 import threading
 import time
 import uuid
@@ -20,11 +23,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
 import uvicorn
 
 app = FastAPI(title="XJTLU Virtual Campus", version="0.1.0")
 
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 DATA_DIR = Path(os.environ.get("SURF_DATA_DIR", str(BASE_DIR / "data"))).resolve()
 UPLOAD_DIR = Path(os.environ.get("SURF_UPLOAD_DIR", str(BASE_DIR / "uploads"))).resolve()
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -44,6 +49,8 @@ REQUEST_LOG = deque(maxlen=REQUEST_LOG_LIMIT)
 REQUEST_LOG_LOCK = threading.Lock()
 REQUEST_STATS = {"started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "requests": 0, "errors": 0, "total_ms": 0.0, "max_ms": 0.0}
 request_logger = logging.getLogger("surf.request")
+VERIFICATION_CODES: dict[str, dict[str, Any]] = {}
+VERIFICATION_CODES_LOCK = threading.Lock()
 
 
 def read_data(filename: str, fallback: dict) -> dict:
@@ -109,12 +116,229 @@ def opportunity_write_role(role: str = Depends(current_admin_role)) -> str:
 def current_auth_session() -> dict:
     return read_data("auth.json", {}).get("session", {
         "phone_authenticated": False,
+        "email_authenticated": False,
         "phone_masked": "",
         "campus_verified": False,
         "user_id": "",
         "name": "",
         "campus_account": "",
     })
+
+
+def auth_data() -> dict:
+    data = read_data("auth.json", {})
+    data.setdefault("session", current_auth_session())
+    data.setdefault("accounts", [])
+    return data
+
+
+def save_auth_session(session: dict) -> None:
+    data = auth_data()
+    data["session"] = session
+    write_data("auth.json", data)
+
+
+def password_digest(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 180_000).hex()
+
+
+def valid_email(email: str) -> bool:
+    return bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email))
+
+
+def aliyun_sms_configured() -> bool:
+    return os.environ.get("SURF_SMS_PROVIDER", "mock").strip().lower() == "aliyun"
+
+
+def aliyun_exception_detail(exc: Exception) -> str:
+    """Expose a safe provider error without leaking credentials or SDK internals."""
+    code = str(getattr(exc, "code", "") or "").strip()
+    message = str(getattr(exc, "message", "") or "").strip()
+    request_id = str(getattr(exc, "request_id", "") or "").strip()
+    if code or message:
+        detail = f"阿里云错误 {code or 'Unknown'}：{message or '请求失败'}"
+        return f"{detail}（RequestId: {request_id}）" if request_id else detail
+    return "阿里云短信服务暂时不可用，请稍后重试"
+
+
+def aliyun_sms_client():
+    try:
+        from alibabacloud_dypnsapi20170525.client import Client
+        from alibabacloud_tea_openapi.models import Config
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="未安装阿里云号码认证 SDK，请先安装后端依赖") from exc
+    access_key_id = os.environ.get("ALIYUN_ACCESS_KEY_ID", "").strip()
+    access_key_secret = os.environ.get("ALIYUN_ACCESS_KEY_SECRET", "").strip()
+    if not access_key_id or not access_key_secret:
+        raise HTTPException(status_code=503, detail="缺少阿里云 AccessKey 配置")
+    config = Config(
+        access_key_id=access_key_id,
+        access_key_secret=access_key_secret,
+        endpoint=os.environ.get("ALIYUN_DYPNSAPI_ENDPOINT", "dypnsapi.aliyuncs.com"),
+        connect_timeout=5000,
+        read_timeout=8000,
+    )
+    return Client(config)
+
+
+def send_aliyun_sms_code(target: str) -> None:
+    try:
+        from alibabacloud_dypnsapi20170525.models import SendSmsVerifyCodeRequest
+        from alibabacloud_tea_util.models import RuntimeOptions
+        template_param = os.environ.get("ALIYUN_SMS_TEMPLATE_PARAM", '{"code":"##code##","min":"5"}')
+        request = SendSmsVerifyCodeRequest(
+            country_code="86",
+            phone_number=target,
+            scheme_name=os.environ.get("ALIYUN_SMS_SCHEME_NAME", "").strip() or None,
+            sign_name=os.environ.get("ALIYUN_SMS_SIGN_NAME", "恒创联众").strip() or None,
+            template_code=os.environ.get("ALIYUN_SMS_TEMPLATE_CODE", "100001").strip() or None,
+            template_param=template_param,
+            code_length=int(os.environ.get("ALIYUN_SMS_CODE_LENGTH", "6")),
+            code_type=1,
+            interval=int(os.environ.get("SURF_AUTH_CODE_COOLDOWN_SECONDS", "60")),
+            valid_time=int(os.environ.get("SURF_AUTH_CODE_TTL_SECONDS", "600")),
+            return_verify_code=False,
+        )
+        response = aliyun_sms_client().send_sms_verify_code_with_options(request, RuntimeOptions())
+        body = response.body
+        if not body or body.code != "OK" or body.success is False:
+            detail = (body.message if body else "阿里云短信服务未返回结果") or "阿里云短信发送失败"
+            raise HTTPException(status_code=502, detail=detail)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        request_logger.exception("Aliyun SMS send failed")
+        raise HTTPException(status_code=502, detail=aliyun_exception_detail(exc)) from exc
+
+
+def check_aliyun_sms_code(target: str, code: str) -> None:
+    try:
+        from alibabacloud_dypnsapi20170525.models import CheckSmsVerifyCodeRequest
+        from alibabacloud_tea_util.models import RuntimeOptions
+        request = CheckSmsVerifyCodeRequest(
+            country_code="86",
+            phone_number=target,
+            scheme_name=os.environ.get("ALIYUN_SMS_SCHEME_NAME", "").strip() or None,
+            verify_code=code.strip(),
+        )
+        response = aliyun_sms_client().check_sms_verify_code_with_options(request, RuntimeOptions())
+        body = response.body
+        verify_result = body.model.verify_result if body and body.model else "UNKNOWN"
+        if not body or body.code != "OK" or body.success is False or verify_result != "PASS":
+            raise HTTPException(status_code=401, detail="验证码不正确或已过期")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        request_logger.exception("Aliyun SMS check failed")
+        raise HTTPException(status_code=502, detail=aliyun_exception_detail(exc)) from exc
+
+
+def verification_target(channel: str, target: str) -> str:
+    if channel in {"phone", "sms"}:
+        digits = re.sub(r"\D", "", target)
+        if len(digits) != 11:
+            raise HTTPException(status_code=400, detail="请输入 11 位手机号")
+        return digits
+    normalized = target.strip().lower()
+    if not valid_email(normalized):
+        raise HTTPException(status_code=400, detail="请输入有效的邮箱地址")
+    return normalized
+
+
+def deliver_verification_code(channel: str, target: str, code: str) -> str:
+    """Use a configured provider, otherwise keep local development deterministic."""
+    if channel == "sms" and aliyun_sms_configured():
+        send_aliyun_sms_code(target)
+        return "aliyun"
+    if channel == "sms" and os.environ.get("SURF_SMS_PROVIDER_URL", "").strip():
+        payload = json.dumps({"to": target, "code": code, "template": os.environ.get("SURF_SMS_TEMPLATE", "")}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        token = os.environ.get("SURF_SMS_PROVIDER_TOKEN", "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = URLRequest(os.environ["SURF_SMS_PROVIDER_URL"], data=payload, headers=headers, method="POST")
+        try:
+            with urlopen(request, timeout=8) as response:
+                if response.status >= 400:
+                    raise HTTPException(status_code=502, detail="短信服务暂时不可用，请稍后重试")
+        except (HTTPError, URLError, TimeoutError) as exc:
+            raise HTTPException(status_code=502, detail="短信服务暂时不可用，请稍后重试") from exc
+        return "sms-provider"
+    if channel == "email" and os.environ.get("SURF_SMTP_HOST", "").strip():
+        sender = os.environ.get("SURF_SMTP_FROM", "").strip()
+        if not sender:
+            raise HTTPException(status_code=500, detail="邮件服务缺少发件人配置")
+        message = EmailMessage()
+        message["Subject"] = os.environ.get("SURF_EMAIL_SUBJECT", "SURF Campus 验证码")
+        message["From"] = sender
+        message["To"] = target
+        message.set_content(f"你的 SURF Campus 验证码是 {code}，10 分钟内有效。请勿将验证码告诉他人。")
+        host = os.environ["SURF_SMTP_HOST"]
+        port = int(os.environ.get("SURF_SMTP_PORT", "465"))
+        username = os.environ.get("SURF_SMTP_USERNAME", "")
+        password = os.environ.get("SURF_SMTP_PASSWORD", "")
+        try:
+            if os.environ.get("SURF_SMTP_SECURITY", "ssl").lower() == "starttls":
+                with smtplib.SMTP(host, port, timeout=8) as server:
+                    server.starttls()
+                    if username:
+                        server.login(username, password)
+                    server.send_message(message)
+            else:
+                with smtplib.SMTP_SSL(host, port, timeout=8) as server:
+                    if username:
+                        server.login(username, password)
+                    server.send_message(message)
+        except (OSError, smtplib.SMTPException) as exc:
+            raise HTTPException(status_code=502, detail="邮件服务暂时不可用，请稍后重试") from exc
+        return "smtp"
+    return "mock"
+
+
+def issue_verification_code(channel: str, target: str) -> dict:
+    normalized = verification_target(channel, target)
+    key = f"{channel}:{normalized}"
+    now = time.time()
+    cooldown = max(1, int(os.environ.get("SURF_AUTH_CODE_COOLDOWN_SECONDS", "30")))
+    ttl = max(60, int(os.environ.get("SURF_AUTH_CODE_TTL_SECONDS", "600")))
+    with VERIFICATION_CODES_LOCK:
+        previous = VERIFICATION_CODES.get(key)
+        if previous and now - previous["sent_at"] < cooldown:
+            remaining = cooldown - int(now - previous["sent_at"])
+            raise HTTPException(status_code=429, detail=f"请 {remaining} 秒后重新获取验证码")
+    if channel == "sms":
+        configured = aliyun_sms_configured() or bool(os.environ.get("SURF_SMS_PROVIDER_URL", "").strip())
+    else:
+        configured = bool(os.environ.get("SURF_SMTP_HOST", "").strip())
+    if configured:
+        code = f"{secrets.randbelow(1_000_000):06d}"
+    else:
+        code = os.environ.get("SURF_MOCK_SMS_CODE" if channel == "sms" else "SURF_MOCK_EMAIL_CODE", "123456")
+    provider = deliver_verification_code(channel, normalized, code)
+    with VERIFICATION_CODES_LOCK:
+        VERIFICATION_CODES[key] = {"code": code if provider != "aliyun" else None, "provider": provider, "expires_at": now + ttl, "sent_at": now}
+    response = {"sent": True, "channel": channel, "masked_target": (f"{normalized[:3]}****{normalized[-4:]}" if channel == "sms" else f"{normalized[:2]}***{normalized[normalized.index('@'):]}") , "provider": provider, "expires_in": ttl, "cooldown": cooldown}
+    if provider == "mock" and os.environ.get("SURF_AUTH_DEBUG_CODES", "true").lower() == "true":
+        response["debug_code"] = code
+    return response
+
+
+def consume_verification_code(channel: str, target: str, code: str) -> None:
+    normalized = verification_target(channel, target)
+    key = f"{channel}:{normalized}"
+    with VERIFICATION_CODES_LOCK:
+        saved = VERIFICATION_CODES.get(key)
+        if not saved or time.time() > saved["expires_at"]:
+            VERIFICATION_CODES.pop(key, None)
+            raise HTTPException(status_code=401, detail="验证码已过期或未发送，请重新获取")
+        provider = saved.get("provider", "mock")
+        if provider == "aliyun":
+            check_aliyun_sms_code(normalized, code)
+            VERIFICATION_CODES.pop(key, None)
+            return
+        if not secrets.compare_digest(str(saved["code"]), code.strip()):
+            raise HTTPException(status_code=401, detail="验证码不正确")
+        VERIFICATION_CODES.pop(key, None)
 
 
 def campus_verified_session() -> dict:
@@ -306,8 +530,22 @@ class PhoneLoginRequest(BaseModel):
     code: str = Field(min_length=4, max_length=8)
 
 
+class PhoneCodeRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=20)
+
+
+class EmailCodeRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+
+
 class EmailLoginRequest(BaseModel):
     email: str = Field(min_length=5, max_length=160)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class EmailRegisterRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    code: str = Field(min_length=4, max_length=8)
     password: str = Field(min_length=6, max_length=128)
 
 
@@ -333,22 +571,32 @@ def health_check():
 @app.get("/api/auth/session")
 def get_auth_session():
     session = current_auth_session()
-    identity_level = "campus" if session.get("campus_verified") else ("phone" if session.get("phone_authenticated") else "guest")
+    identity_level = "campus" if session.get("campus_verified") else ("phone" if session.get("phone_authenticated") else ("email" if session.get("email_authenticated") else "guest"))
     return {**session, "can_publish": bool(session.get("campus_verified")), "identity_level": identity_level}
+
+
+@app.post("/api/auth/phone/code")
+def send_phone_code(req: PhoneCodeRequest):
+    return issue_verification_code("sms", req.phone)
 
 
 @app.post("/api/auth/email")
 def login_by_email(req: EmailLoginRequest):
     email = req.email.strip().lower()
-    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+    if not valid_email(email):
         raise HTTPException(status_code=400, detail="请输入有效的邮箱地址")
+    account = next((item for item in auth_data().get("accounts", []) if item.get("email") == email), None)
     expected_password = os.environ.get("SURF_DEMO_EMAIL_PASSWORD", "SURF2026")
-    if not secrets.compare_digest(req.password, expected_password):
+    password_ok = secrets.compare_digest(req.password, expected_password)
+    if account:
+        password_ok = secrets.compare_digest(password_digest(req.password, account.get("password_salt", "")), account.get("password_hash", ""))
+    if not password_ok:
         raise HTTPException(status_code=401, detail="邮箱或密码不正确，请重试")
     is_campus = email.endswith("@xjtlu.edu.cn") or email.endswith("@student.xjtlu.edu.cn")
     account_name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@", 1)[0])[:40] or "student"
     session = {
         "phone_authenticated": True,
+        "email_authenticated": True,
         "phone_masked": "",
         "campus_verified": is_campus,
         "user_id": f"email_{account_name}",
@@ -356,21 +604,60 @@ def login_by_email(req: EmailLoginRequest):
         "campus_account": email if is_campus else "",
         "email": email,
     }
-    write_data("auth.json", {"session": session})
-    return {**session, "can_publish": is_campus, "identity_level": "campus" if is_campus else "phone"}
+    save_auth_session(session)
+    return {**session, "can_publish": is_campus, "identity_level": "campus" if is_campus else "email"}
+
+
+@app.post("/api/auth/email/code")
+def send_email_code(req: EmailCodeRequest):
+    return issue_verification_code("email", req.email)
+
+
+@app.post("/api/auth/register")
+def register_by_email(req: EmailRegisterRequest):
+    email = verification_target("email", req.email)
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少需要 6 位")
+    consume_verification_code("email", email, req.code)
+    data = auth_data()
+    if any(item.get("email") == email for item in data.get("accounts", [])):
+        raise HTTPException(status_code=409, detail="该邮箱已经注册，请直接登录")
+    salt = secrets.token_hex(16)
+    data.setdefault("accounts", []).append({
+        "email": email,
+        "password_salt": salt,
+        "password_hash": password_digest(req.password, salt),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+    is_campus = email.endswith("@xjtlu.edu.cn") or email.endswith("@student.xjtlu.edu.cn")
+    account_name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@", 1)[0])[:40] or "student"
+    session = {
+        "phone_authenticated": True,
+        "email_authenticated": True,
+        "phone_masked": "",
+        "campus_verified": is_campus,
+        "user_id": f"email_{account_name}",
+        "name": account_name.replace(".", " ").title(),
+        "campus_account": email if is_campus else "",
+        "email": email,
+    }
+    data["session"] = session
+    write_data("auth.json", data)
+    return {**session, "can_publish": is_campus, "identity_level": "campus" if is_campus else "email"}
 
 
 @app.delete("/api/auth/session")
 def logout_auth_session():
     session = {
         "phone_authenticated": False,
+        "email_authenticated": False,
         "phone_masked": "",
         "campus_verified": False,
         "user_id": "",
         "name": "",
         "campus_account": "",
     }
-    write_data("auth.json", {"session": session})
+    save_auth_session(session)
     return {**session, "can_publish": False, "identity_level": "guest"}
 
 
@@ -379,17 +666,20 @@ def login_by_phone(req: PhoneLoginRequest):
     digits = re.sub(r"\D", "", req.phone)
     if len(digits) != 11:
         raise HTTPException(status_code=400, detail="请输入 11 位手机号")
-    if req.code != os.environ.get("SURF_MOCK_SMS_CODE", "123456"):
+    if aliyun_sms_configured() or os.environ.get("SURF_SMS_PROVIDER_URL", "").strip():
+        consume_verification_code("sms", digits, req.code)
+    elif req.code != os.environ.get("SURF_MOCK_SMS_CODE", "123456"):
         raise HTTPException(status_code=401, detail="验证码不正确")
     session = {
         "phone_authenticated": True,
+        "email_authenticated": False,
         "phone_masked": f"{digits[:3]}****{digits[-4:]}",
         "campus_verified": False,
         "user_id": "",
         "name": "手机访客",
         "campus_account": "",
     }
-    write_data("auth.json", {"session": session})
+    save_auth_session(session)
     return {**session, "can_publish": False, "identity_level": "phone"}
 
 
@@ -553,7 +843,7 @@ def mock_bind_xjtlu(req: MockCampusBindRequest):
         raise HTTPException(status_code=400, detail="只接受 XJTLU 校园邮箱")
     session.update({"campus_verified": True, "user_id": "u001", "name": "张三", "campus_account": account})
     session.pop("campus_provider", None)
-    write_data("auth.json", {"session": session})
+    save_auth_session(session)
     return {**session, "can_publish": True, "identity_level": "campus"}
 
 
@@ -562,8 +852,9 @@ def remove_xjtlu_binding():
     session = current_auth_session()
     session.update({"campus_verified": False, "user_id": "", "name": "手机访客", "campus_account": ""})
     session.pop("campus_provider", None)
-    write_data("auth.json", {"session": session})
-    return {**session, "can_publish": False, "identity_level": "phone"}
+    save_auth_session(session)
+    identity_level = "email" if session.get("email_authenticated") else "phone"
+    return {**session, "can_publish": False, "identity_level": identity_level}
 
 # ─── AI 对话 ───
 
