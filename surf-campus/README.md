@@ -56,6 +56,8 @@ python main.py
 
 身份权限：手机验证码登录默认只允许浏览、搜索和收藏；绑定 XJTLU 校园身份后才允许发帖、评论和课程提问。真实登录入口需要 `XJTLU_OAUTH_CLIENT_ID`、`XJTLU_OAUTH_CLIENT_SECRET`、`XJTLU_OAUTH_REDIRECT_URI`、`XJTLU_OAUTH_TOKEN_URL` 和 `XJTLU_OAUTH_USERINFO_URL`，回调会校验一次性 state、issuer 和校园邮箱域名；scope 默认是 `openid profile email`，未拿到学校注册信息时不会伪造 token 校验，本地 `mock-bind` 只用于开发验收。
 
+手机号验证码使用阿里云号码认证服务短信 API 时，在 `backend/.env` 注入 `SURF_SMS_PROVIDER=aliyun`、`ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET`、`ALIYUN_SMS_SCHEME_NAME`、`ALIYUN_SMS_SIGN_NAME` 和 `ALIYUN_SMS_TEMPLATE_CODE`。发送和核验分别调用阿里云 `SendSmsVerifyCode` 与 `CheckSmsVerifyCode`；未配置真实凭据时使用 `SURF_SMS_PROVIDER=mock` 和本地验证码 `123456`。邮箱注册的验证码发送仍通过 SMTP 配置完成。
+
 ### 验证
 
 ```bash

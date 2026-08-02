@@ -154,6 +154,7 @@
 | 2026-08-01 | 本地交付与回归入口 | 新增 `docs/DELIVERY.md` 和 `scripts/verify-local.sh`，写明启动、角色、数据/媒体隔离、验证命令和生产替换清单；完整脚本通过主浏览器、AI、招募、活动、树洞、通讯录、偏好与观测回归，服务健康检查通过 | 正式部署、SSO、数据库、对象存储和生产级压测仍待外部环境 |
 | 2026-08-01 | 详情、互动、资料路径与身份权限修复 | 帖子正文可进入详情，评论入口进入详情并聚焦输入框；点赞改为按用户幂等切换；收藏入口合并个人 Tag 且支持自定义规范化 Tag；资料按年级 -> 上/下学期 -> 专业 -> 课程联动，大一走共同课程；手机访客可浏览但不能发帖/评论/提问，移动端头像可进入身份页；新增 `tests/auth-smoke.py` 与 `tests/auth-ui-smoke.cjs` | `./scripts/verify-local.sh` 全量通过：浏览器、AI、招募、活动、树洞、通讯录、偏好、详情互动、认证、移动端身份、观测；控制台错误 0；真实 XJTLU OAuth2 仍需学校提供 client_id、redirect_uri、token/userinfo 和 claim 约定 |
 | 2026-08-01 | 真实 OAuth2 回调垂直切片 | 新增 `/api/auth/xjtlu/callback`：一次性 state/过期检查、回调地址绑定、授权码交换、Bearer userinfo、issuer 与校园邮箱域名校验、成功回跳首页；支持 `openid profile email` scope 和 Basic/Form token client auth；解绑会清理身份提供方痕迹；补齐 `backend/.env.example` 交付模板 | 本地 Provider 使用动态端口覆盖成功、回调地址漂移、非校内邮箱、错误 issuer、state 重放；`tests/oauth-callback-smoke.py` 与完整 `./scripts/verify-local.sh` 通过；真实生产接入仍需学校注册 client、回调地址、token/userinfo endpoint 与 scope |
+| 2026-08-02 | 手机/邮箱验证码认证闭环 | 登录页新增手机号验证码登录、邮箱验证码注册和注册后邮箱密码登录；手机号后端接入阿里云 DypnsAPI `SendSmsVerifyCode` / `CheckSmsVerifyCode`，本地 Mock、SMTP 邮件和兼容 HTTP provider 保留为开发/替换边界；验证码冷却/过期由服务端和阿里云共同控制 | 临时数据目录 API 冒烟、桌面/移动端 Playwright UI 冒烟、登录页原有回归、Python/JS 语法检查通过；真实阿里云 AccessKey、方案名、签名和模板仍需部署环境注入 |
 
 ## 变更纪律
 
