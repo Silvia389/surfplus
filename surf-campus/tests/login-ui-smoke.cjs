@@ -1,4 +1,5 @@
 const { chromium } = require('/Users/hanmingyu/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const fs = require('fs');
 
 const BASE_URL = process.env.SURF_E2E_BASE_URL || 'http://127.0.0.1:8000';
 
@@ -7,7 +8,8 @@ function assert(condition, message) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const executablePath = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const browser = await chromium.launch({ headless: true, ...(fs.existsSync(executablePath) ? { executablePath } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
   const page = await context.newPage();
   const originalResponse = await page.request.get(`${BASE_URL}/api/auth/session`);
