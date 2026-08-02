@@ -53,7 +53,7 @@
 
     <section class="login-panel">
       <div class="login-card">
-        <div class="login-heading">
+        <div class="login-heading" id="login-heading">
           <span class="login-kicker">SURF CAMPUS</span>
           <h2>Welcome back!</h2>
           <p>Please enter your details</p>
@@ -79,6 +79,28 @@
           <p class="login-message" id="email-login-message" aria-live="polite"></p>
           <button class="login-submit" type="submit"><span>Log in</span><i data-lucide="arrow-right"></i></button>
           <button class="login-alternate" type="button" data-login-mode="phone"><i data-lucide="smartphone"></i><span>使用手机号登录</span></button>
+        </form>
+
+        <form class="login-form" id="email-register-form" hidden novalidate>
+          <div class="login-field">
+            <label for="register-email">邮箱地址</label>
+            <div class="login-input-wrap"><i data-lucide="mail" aria-hidden="true"></i><input id="register-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required></div>
+          </div>
+          <div class="login-field">
+            <label for="register-email-code">邮箱验证码</label>
+            <div class="login-input-wrap login-code-wrap"><i data-lucide="mail-check" aria-hidden="true"></i><input id="register-email-code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" minlength="6" maxlength="6" required><button class="send-code-button" id="send-email-code" type="button">获取验证码</button></div>
+          </div>
+          <div class="login-field">
+            <label for="register-password">设置密码</label>
+            <div class="login-input-wrap"><i data-lucide="lock-keyhole" aria-hidden="true"></i><input id="register-password" name="password" type="password" autocomplete="new-password" placeholder="至少 6 位字符" minlength="6" required></div>
+          </div>
+          <div class="login-field">
+            <label for="register-password-confirm">确认密码</label>
+            <div class="login-input-wrap"><i data-lucide="shield-check" aria-hidden="true"></i><input id="register-password-confirm" name="password-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" minlength="6" required></div>
+          </div>
+          <p class="login-message" id="email-register-message" aria-live="polite"></p>
+          <button class="login-submit" type="submit"><span>创建账号</span><i data-lucide="arrow-right"></i></button>
+          <button class="login-alternate" type="button" data-email-view="login"><i data-lucide="log-in"></i><span>已有账号？返回登录</span></button>
         </form>
 
         <form class="login-form" id="login-phone-form" hidden novalidate>

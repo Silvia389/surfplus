@@ -35,7 +35,7 @@ const state = {
   conversations: [],
   preferences: { sections: ['academic', 'campus-life', 'opportunities', 'teams'], interests: ['AI', 'CSE101'], show_context_rail: true, content_language: 'mixed' },
   participation: { points: 0, records: [] },
-  authSession: { phone_authenticated: false, campus_verified: false, can_publish: false, name: '', phone_masked: '', campus_account: '' },
+  authSession: { phone_authenticated: false, email_authenticated: false, campus_verified: false, can_publish: false, name: '', phone_masked: '', campus_account: '' },
   authConfig: { configured: false, mock_binding_enabled: true, provider: 'XJTLU UIM OAuth2' },
   tags: [],
   errors: {},
@@ -106,6 +106,8 @@ let loginFocusTarget = null;
 let loginAnimationFrame = 0;
 let loginMoodTimer = 0;
 let passwordIsVisible = false;
+let emailEntryMode = 'login';
+const loginCodeTimers = new Map();
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
@@ -200,7 +202,7 @@ function unlockApp() {
 }
 
 function syncLoginGate() {
-  if (state.authSession.phone_authenticated && hasStoredLogin()) unlockApp();
+  if ((state.authSession.phone_authenticated || state.authSession.email_authenticated) && hasStoredLogin()) unlockApp();
   else showLoginGate();
 }
 
@@ -239,9 +241,12 @@ function completeLogin(result, persistent, form) {
 
 function switchLoginMode(mode, focus = true) {
   const emailForm = $('email-login-form');
+  const registerForm = $('email-register-form');
   const phoneForm = $('login-phone-form');
   const showPhone = mode === 'phone';
-  emailForm.hidden = showPhone;
+  emailEntryMode = 'login';
+  emailForm.hidden = showPhone || emailEntryMode !== 'login';
+  registerForm.hidden = showPhone || emailEntryMode !== 'register';
   phoneForm.hidden = !showPhone;
   document.querySelectorAll('[role="tab"][data-login-mode]').forEach(tab => {
     const active = tab.dataset.loginMode === mode;
@@ -252,6 +257,49 @@ function switchLoginMode(mode, focus = true) {
   loginFocusTarget = null;
   setLoginMood('idle');
   if (focus) requestAnimationFrame(() => $(showPhone ? 'login-phone' : 'login-email')?.focus());
+}
+
+function switchEmailEntry(mode, focus = true) {
+  emailEntryMode = mode;
+  const loginForm = $('email-login-form');
+  const registerForm = $('email-register-form');
+  loginForm.hidden = mode !== 'login';
+  registerForm.hidden = mode !== 'register';
+  $('login-heading').querySelector('h2').textContent = mode === 'register' ? 'Create your account' : 'Welcome back!';
+  $('login-heading').querySelector('p').textContent = mode === 'register' ? 'Verify your email to get started' : 'Please enter your details';
+  $('create-account').parentElement.hidden = mode === 'register';
+  document.querySelectorAll('[role="tab"][data-login-mode]').forEach(tab => {
+    const active = tab.dataset.loginMode === 'email';
+    tab.classList.toggle('is-active', active);
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  loginFocusTarget = null;
+  setLoginMood('idle');
+  if (focus) requestAnimationFrame(() => $(mode === 'register' ? 'register-email' : 'login-email')?.focus());
+}
+
+function startCodeCountdown(button, seconds = 30) {
+  const oldTimer = loginCodeTimers.get(button.id);
+  if (oldTimer) window.clearInterval(oldTimer);
+  let remaining = seconds;
+  button.disabled = true;
+  button.textContent = `${remaining}s`;
+  const timer = window.setInterval(() => {
+    remaining -= 1;
+    button.textContent = remaining > 0 ? `${remaining}s` : '重新发送';
+    if (remaining <= 0) {
+      window.clearInterval(timer);
+      loginCodeTimers.delete(button.id);
+      button.disabled = false;
+    }
+  }, 1000);
+  loginCodeTimers.set(button.id, timer);
+}
+
+function showCodeSentMessage(element, response, label) {
+  const debug = response.debug_code ? ` 本地演示验证码：${response.debug_code}` : '';
+  setLoginMessage(element, `${label}已发送，有效期 10 分钟。${debug}`, true);
 }
 
 function initLoginExperience() {
@@ -308,8 +356,8 @@ function initLoginExperience() {
       return;
     }
     if (event.target.closest('#create-account')) {
-      setLoginMessage($('email-login-message'), '使用校园邮箱首次登录即可创建账号。', true);
       switchLoginMode('email', false);
+      switchEmailEntry('register');
       return;
     }
     if (event.target.closest('#send-code')) {
@@ -320,15 +368,26 @@ function initLoginExperience() {
         return;
       }
       const button = $('send-code');
-      let remaining = 30;
-      button.disabled = true;
-      button.textContent = `${remaining}s`;
-      setLoginMessage($('phone-login-message'), '验证码已发送。', true);
-      const timer = window.setInterval(() => {
-        remaining -= 1;
-        button.textContent = remaining > 0 ? `${remaining}s` : '重新发送';
-        if (remaining <= 0) { window.clearInterval(timer); button.disabled = false; }
-      }, 1000);
+      api('/api/auth/phone/code', { method: 'POST', body: JSON.stringify({ phone }) })
+        .then(response => { startCodeCountdown(button, response.cooldown || 30); showCodeSentMessage($('phone-login-message'), response, '短信验证码'); })
+        .catch(error => setLoginMessage($('phone-login-message'), error.message));
+      return;
+    }
+    if (event.target.closest('#send-email-code')) {
+      const email = $('register-email').value.trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) {
+        setLoginMessage($('email-register-message'), '请输入有效的邮箱地址。');
+        $('register-email').focus();
+        return;
+      }
+      const button = $('send-email-code');
+      api('/api/auth/email/code', { method: 'POST', body: JSON.stringify({ email }) })
+        .then(response => { startCodeCountdown(button, response.cooldown || 30); showCodeSentMessage($('email-register-message'), response, '邮箱验证码'); })
+        .catch(error => setLoginMessage($('email-register-message'), error.message));
+      return;
+    }
+    if (event.target.closest('[data-email-view]')) {
+      switchEmailEntry(event.target.closest('[data-email-view]').dataset.emailView);
     }
   });
 
@@ -359,6 +418,26 @@ function initLoginExperience() {
     try {
       const result = await api('/api/auth/phone', { method: 'POST', body: JSON.stringify({ phone, code }) });
       completeLogin(result, false, form);
+    } catch (error) {
+      failLogin(form, error.message);
+    }
+  });
+
+  $('email-register-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const email = $('register-email').value.trim();
+    const code = $('register-email-code').value.trim();
+    const password = $('register-password').value;
+    const confirmation = $('register-password-confirm').value;
+    if (!/^\S+@\S+\.\S+$/.test(email)) { failLogin(form, '请输入有效的邮箱地址。'); $('register-email').focus(); return; }
+    if (code.length !== 6) { failLogin(form, '请输入 6 位邮箱验证码。'); $('register-email-code').focus(); return; }
+    if (password.length < 6) { failLogin(form, '密码至少需要 6 位。'); $('register-password').focus(); return; }
+    if (password !== confirmation) { failLogin(form, '两次输入的密码不一致。'); $('register-password-confirm').focus(); return; }
+    setLoginBusy(form, true);
+    try {
+      const result = await api('/api/auth/register', { method: 'POST', body: JSON.stringify({ email, code, password }) });
+      completeLogin(result, true, form);
     } catch (error) {
       failLogin(form, error.message);
     }
