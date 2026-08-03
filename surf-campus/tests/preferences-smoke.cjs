@@ -7,6 +7,9 @@ function assert(condition, message) {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.request.post(`${process.env.SURF_E2E_BASE_URL || 'http://127.0.0.1:8000'}/api/auth/phone`, { data: { phone: '19155147738', code: '123456' } });
+  await page.request.patch(`${process.env.SURF_E2E_BASE_URL || 'http://127.0.0.1:8000'}/api/profile`, { data: { username: '偏好测试用户', bio: '', birthday: '', avatar: 'sun' } });
+  await page.addInitScript(() => sessionStorage.setItem('surf-login-complete', 'true'));
   await page.goto(process.env.SURF_E2E_BASE_URL || 'http://127.0.0.1:8000', { waitUntil: 'networkidle' });
   await page.locator('.profile-button').click();
   await page.waitForSelector('#preferences-form');

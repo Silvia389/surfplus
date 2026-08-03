@@ -40,6 +40,14 @@ pip install -r requirements.txt
 python main.py
 ```
 
+需要反复重启本地测试、暂时跳过登录时，使用开发专用启动脚本：
+
+```bash
+./start-dev.sh
+```
+
+它不会自动进入首页；本机输入 `19155147738` 和 `123456` 后可以直接提交手机号登录，不必先请求短信。生产环境不要开启 `SURF_DEV_AUTH_BYPASS` 或 `SURF_DEV_FIXED_PHONE_LOGIN`。
+
 启动后访问：
 - API 文档: http://localhost:8000/docs
 - 健康检查: http://localhost:8000/health
@@ -54,9 +62,9 @@ python main.py
 - 管理写操作统一使用 `/api/admin/*`，前端不直接编辑 `backend/data/*.json`。
 - P0 媒体存储在 `backend/uploads/`，资料文件存储在 `backend/resource_files/`；生产对象存储和真实 SSO 留在 P3。
 
-身份权限：手机验证码登录默认只允许浏览、搜索和收藏；绑定 XJTLU 校园身份后才允许发帖、评论和课程提问。真实登录入口需要 `XJTLU_OAUTH_CLIENT_ID`、`XJTLU_OAUTH_CLIENT_SECRET`、`XJTLU_OAUTH_REDIRECT_URI`、`XJTLU_OAUTH_TOKEN_URL` 和 `XJTLU_OAUTH_USERINFO_URL`，回调会校验一次性 state、issuer 和校园邮箱域名；scope 默认是 `openid profile email`，未拿到学校注册信息时不会伪造 token 校验，本地 `mock-bind` 只用于开发验收。
+身份权限：手机验证码登录默认只允许浏览、搜索和收藏；绑定 `@student.xjtlu.edu.cn` 或 `@xjtlu.edu.cn` 学校邮箱后才允许发帖、评论和点赞。手机号登录但未绑定邮箱不能互动。真实登录入口仍可使用 `XJTLU_OAUTH_CLIENT_ID`、`XJTLU_OAUTH_CLIENT_SECRET`、`XJTLU_OAUTH_REDIRECT_URI`、`XJTLU_OAUTH_TOKEN_URL` 和 `XJTLU_OAUTH_USERINFO_URL`，本地 `mock-bind` 只用于开发验收。
 
-手机号验证码使用阿里云号码认证服务短信 API 时，在 `backend/.env` 注入 `SURF_SMS_PROVIDER=aliyun`、`ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET`、`ALIYUN_SMS_SCHEME_NAME`、`ALIYUN_SMS_SIGN_NAME` 和 `ALIYUN_SMS_TEMPLATE_CODE`。发送和核验分别调用阿里云 `SendSmsVerifyCode` 与 `CheckSmsVerifyCode`；未配置真实凭据时使用 `SURF_SMS_PROVIDER=mock` 和本地验证码 `123456`。邮箱注册的验证码发送仍通过 SMTP 配置完成。
+手机号验证码使用阿里云号码认证服务短信 API 时，在 `backend/.env` 注入 `SURF_SMS_PROVIDER=aliyun`、`ALIYUN_ACCESS_KEY_ID`、`ALIYUN_ACCESS_KEY_SECRET`、`ALIYUN_SMS_SCHEME_NAME`、`ALIYUN_SMS_SIGN_NAME` 和 `ALIYUN_SMS_TEMPLATE_CODE`。发送和核验分别调用阿里云 `SendSmsVerifyCode` 与 `CheckSmsVerifyCode`；未配置真实凭据时使用 `SURF_SMS_PROVIDER=mock` 和本地验证码 `123456`。学校邮箱验证码目前保留 FastAPI SMTP 适配器，同时新增了独立的 `backend/mail-service/` Nodemailer 服务骨架，默认不发送邮件。
 
 ### 验证
 

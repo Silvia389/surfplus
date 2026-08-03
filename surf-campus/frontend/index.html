@@ -48,7 +48,7 @@
         </div>
       </div>
 
-      <footer class="login-stage-footer"><span>Privacy</span><span>Terms</span><span>Made for XJTLU</span></footer>
+      <footer class="login-stage-footer"><button type="button" data-login-policy="privacy">Privacy</button><button type="button" data-login-policy="terms">Terms</button><span>Made for XJTLU</span></footer>
     </section>
 
     <section class="login-panel">
@@ -60,8 +60,8 @@
         </div>
 
         <div class="login-switch" role="tablist" aria-label="登录方式">
-          <button class="is-active" id="email-login-tab" type="button" role="tab" aria-selected="true" aria-controls="email-login-form" data-login-mode="email"><i data-lucide="mail"></i><span>Email</span></button>
-          <button id="phone-login-tab" type="button" role="tab" aria-selected="false" aria-controls="login-phone-form" data-login-mode="phone"><i data-lucide="smartphone"></i><span>手机号</span></button>
+          <button class="is-active" id="phone-login-tab" type="button" role="tab" aria-selected="true" aria-controls="login-phone-form" data-login-mode="phone"><i data-lucide="smartphone"></i><span>手机号</span></button>
+          <button id="email-login-tab" type="button" role="tab" aria-selected="false" aria-controls="email-login-form" data-login-mode="email"><i data-lucide="mail"></i><span>Email</span></button>
         </div>
 
         <form class="login-form" id="email-login-form" novalidate>
@@ -74,7 +74,7 @@
             <div class="login-input-wrap"><i data-lucide="lock-keyhole" aria-hidden="true"></i><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="6" required><button class="password-toggle" id="password-toggle" type="button" aria-label="显示密码" aria-pressed="false"><i data-lucide="eye"></i></button></div>
           </div>
           <div class="login-options">
-            <label class="remember-control"><input id="remember-login" name="remember" type="checkbox"><span aria-hidden="true"><i data-lucide="check"></i></span>Remember me</label>
+            <label class="remember-control"><input id="remember-login" name="remember" type="checkbox" checked><span aria-hidden="true"><i data-lucide="check"></i></span>在此设备保持登录</label>
           </div>
           <p class="login-message" id="email-login-message" aria-live="polite"></p>
           <button class="login-submit" type="submit"><span>Log in</span><i data-lucide="arrow-right"></i></button>
@@ -84,7 +84,7 @@
         <form class="login-form" id="email-register-form" hidden novalidate>
           <div class="login-field">
             <label for="register-email">邮箱地址</label>
-            <div class="login-input-wrap"><i data-lucide="mail" aria-hidden="true"></i><input id="register-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required></div>
+            <div class="login-input-wrap"><i data-lucide="mail" aria-hidden="true"></i><input id="register-email" name="email" type="email" autocomplete="email" placeholder="you@xjtlu.edu.cn" required></div>
           </div>
           <div class="login-field">
             <label for="register-email-code">邮箱验证码</label>
@@ -112,6 +112,7 @@
             <label for="login-code">短信验证码</label>
             <div class="login-input-wrap login-code-wrap"><i data-lucide="message-square-key" aria-hidden="true"></i><input id="login-code" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" minlength="6" maxlength="6" required><button class="send-code-button" id="send-code" type="button">获取验证码</button></div>
           </div>
+          <label class="remember-control"><input id="remember-phone" name="remember" type="checkbox" checked><span aria-hidden="true"><i data-lucide="check"></i></span>在此设备保持登录</label>
           <p class="login-message" id="phone-login-message" aria-live="polite"></p>
           <button class="login-submit" type="submit"><span>手机号登录</span><i data-lucide="arrow-right"></i></button>
           <button class="login-alternate" type="button" data-login-mode="email"><i data-lucide="mail"></i><span>使用邮箱登录</span></button>
@@ -122,6 +123,46 @@
       <p class="login-security"><i data-lucide="shield-check"></i><span>Protected campus access</span></p>
     </section>
   </main>
+
+  <dialog class="login-dialog" id="password-reset-dialog">
+    <form id="password-reset-form" novalidate>
+      <div class="dialog-head"><div><span class="eyebrow">Account recovery</span><h2>找回邮箱密码</h2></div><button class="icon-button" type="button" data-close-login-dialog aria-label="关闭"><i data-lucide="x"></i></button></div>
+      <p class="dialog-note">验证码会发送到你的邮箱；本地演示环境会直接显示验证码。</p>
+      <label class="field-label" for="reset-email">邮箱地址</label><input class="field" id="reset-email" type="email" required placeholder="you@example.com">
+      <label class="field-label" for="reset-code">邮箱验证码</label><div class="login-input-wrap login-code-wrap"><input class="field" id="reset-code" inputmode="numeric" maxlength="6" required placeholder="6 位验证码"><button class="send-code-button" id="send-reset-code" type="button">获取验证码</button></div>
+      <label class="field-label" for="reset-password">新密码</label><input class="field" id="reset-password" type="password" minlength="6" required placeholder="至少 6 位字符">
+      <p class="login-message" id="reset-password-message" aria-live="polite"></p>
+      <button class="button login-submit" type="submit"><span>更新密码</span><i data-lucide="key-round"></i></button>
+    </form>
+  </dialog>
+
+  <dialog class="login-dialog" id="login-policy-dialog">
+    <div class="dialog-head"><div><span class="eyebrow" id="login-policy-eyebrow">SURF Campus</span><h2 id="login-policy-title">Privacy</h2></div><button class="icon-button" type="button" data-close-login-dialog aria-label="关闭"><i data-lucide="x"></i></button></div>
+    <div class="dialog-note" id="login-policy-content"></div>
+  </dialog>
+
+  <dialog class="profile-onboarding-dialog" id="profile-onboarding-dialog">
+    <form id="profile-onboarding-form" novalidate>
+      <div class="dialog-head"><div><span class="eyebrow">First login</span><h2>先认识一下你</h2></div></div>
+      <p class="dialog-note">设置一次公开资料，之后可以在设置中随时修改。生日只用于你的个人资料，不会出现在公共话题流。</p>
+      <div class="avatar-picker" role="radiogroup" aria-label="选择头像">
+        <label class="avatar-choice"><input type="radio" name="avatar" value="sun" checked><span class="avatar avatar-sun"><i data-lucide="sun"></i></span><small>晴日</small></label>
+        <label class="avatar-choice"><input type="radio" name="avatar" value="wave"><span class="avatar avatar-wave"><i data-lucide="waves"></i></span><small>海风</small></label>
+        <label class="avatar-choice"><input type="radio" name="avatar" value="leaf"><span class="avatar avatar-leaf"><i data-lucide="leaf"></i></span><small>新芽</small></label>
+        <label class="avatar-choice"><input type="radio" name="avatar" value="star"><span class="avatar avatar-star"><i data-lucide="star"></i></span><small>星光</small></label>
+        <label class="avatar-choice"><input type="radio" name="avatar" value="spark"><span class="avatar avatar-spark"><i data-lucide="sparkles"></i></span><small>灵感</small></label>
+        <label class="avatar-choice"><input type="radio" name="avatar" value="moon"><span class="avatar avatar-moon"><i data-lucide="moon"></i></span><small>月亮</small></label>
+      </div>
+      <label class="field-label" for="onboarding-username">用户名</label>
+      <input class="field" id="onboarding-username" name="username" maxlength="24" minlength="2" placeholder="别人会这样称呼你" required>
+      <label class="field-label" for="onboarding-bio">简介 <span class="field-hint">可选</span></label>
+      <textarea class="field" id="onboarding-bio" name="bio" maxlength="160" rows="3" placeholder="一句话介绍你的兴趣或正在做的事"></textarea>
+      <label class="field-label" for="onboarding-birthday">生日 <span class="field-hint">可选</span></label>
+      <input class="field" id="onboarding-birthday" name="birthday" type="date">
+      <p class="login-message" id="profile-onboarding-message" aria-live="polite"></p>
+      <button class="button login-submit" type="submit"><span>保存资料并进入校园</span><i data-lucide="arrow-right"></i></button>
+    </form>
+  </dialog>
 
   <div class="app-shell" id="app-shell" inert aria-hidden="true">
     <aside class="sidebar" aria-label="主导航">

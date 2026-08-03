@@ -30,6 +30,24 @@
 - [x] 为新组件实现焦点、按下、触屏、键盘和减弱动态状态
 - [x] 使用 Apple Design 与 Emil Kowalski / Design Engineering 复核 Shell 和组件的层级、反馈、动效与可访问性
 
+## 2026-08-02 本轮用户需求补充
+
+- [x] 新用户首次登录后进入资料初始化：头像、用户名、简介、生日会保存到 `backend/data/users.json`。
+- [x] 个人资料可在设置中再次编辑，主题支持明亮、黑暗和跟随系统，并保存到 `backend/data/preferences.json`。
+- [x] 学校邮箱验证码绑定接受 `@student.xjtlu.edu.cn` 和 `@xjtlu.edu.cn`；手机号未绑定学校邮箱时不能发帖、评论或点赞。
+- [x] 树洞发帖器移除场景分类选择，后端统一保存为通用匿名树洞。
+- [x] 新增 `backend/mail-service/` Nodemailer SMTP 服务骨架，默认关闭发送，保留 transport 校验和验证码发送接口。
+- [x] 根据问卷、访谈和现有实现新增 `docs/PRODUCT_GAP_ANALYSIS_2026-08-02.md`，列出 P0/P1/P2 产品缺口。
+
+### 本轮验证记录
+
+- `python3 -m py_compile backend/main.py backend/tools/*.py`：通过。
+- Node `--check`：通过 `frontend/demo.js` 和 Nodemailer 服务入口。
+- 隔离 `SURF_DATA_DIR` API 回归：手机号只读、非学校邮箱拒绝、学校邮箱绑定、资料持久化、主题持久化、绑定后发帖均通过。
+- Playwright UI：登录状态动画、设置页、树洞移动端、首次资料弹层和黑暗模式流程通过。
+- Nodemailer 服务：`MAIL_ENABLED=false` 时健康检查通过，发送接口正确拒绝发送。
+- 环境遗留：仓库原有 Playwright 冒烟脚本默认依赖开发认证；直接以生产式配置启动时需要先登录，已用隔离服务分别验证登录态和开发态。
+
 ## P0 话题首页、分区/标签与多媒体发布：用户明确要求
 
 - [x] 重做首页主区为单列校园话题流，不再以工作台卡片或双列瀑布流作为首页主体。

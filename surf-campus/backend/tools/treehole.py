@@ -11,7 +11,7 @@ def anonymous_tree_hole(action: str, params: dict = None) -> str:
         params = {}
 
     if action == "post":
-        return _treehole_post(params.get("content", ""), params.get("category"))
+        return _treehole_post(params.get("content", ""))
     elif action == "comment":
         return _treehole_comment(params.get("post_id", ""), params.get("content", ""))
     elif action == "hot":
@@ -22,7 +22,7 @@ def anonymous_tree_hole(action: str, params: dict = None) -> str:
         return json.dumps({"error": f"未知操作: {action}"})
 
 
-def _treehole_post(content, category=None):
+def _treehole_post(content):
     """匿名发帖（后台可追溯）"""
     if not content.strip():
         return json.dumps({"error": "内容不能为空"})
@@ -32,7 +32,7 @@ def _treehole_post(content, category=None):
     new_post = {
         "id": f"th_{int(time.time())}_{len(treehole_posts)}",
         "content": content,
-        "category": category or "general",
+        "category": "general",
         "status": "published",
         "time": time.strftime("%Y-%m-%d %H:%M"),
         "likes": 0,
@@ -153,7 +153,6 @@ TREEHOLE_TOOL = {
                     "type": "object",
                     "properties": {
                         "content": {"type": "string"},
-                        "category": {"type": "string"},
                         "post_id": {"type": "string"},
                         "reason": {"type": "string"},
                     },

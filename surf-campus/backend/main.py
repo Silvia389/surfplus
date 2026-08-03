@@ -1,6 +1,7 @@
 """XJTLU Virtual Campus — 后端 API"""
 import base64
 from collections import deque
+from datetime import date
 from email.message import EmailMessage
 import hashlib
 import secrets
@@ -29,6 +30,8 @@ import uvicorn
 app = FastAPI(title="XJTLU Virtual Campus", version="0.1.0")
 
 BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in os.sys.path:
+    os.sys.path.insert(0, str(BASE_DIR))
 load_dotenv(BASE_DIR / ".env")
 DATA_DIR = Path(os.environ.get("SURF_DATA_DIR", str(BASE_DIR / "data"))).resolve()
 UPLOAD_DIR = Path(os.environ.get("SURF_UPLOAD_DIR", str(BASE_DIR / "uploads"))).resolve()
@@ -42,6 +45,8 @@ SECTION_LABELS = {
     "opportunities": "活动与机会",
     "teams": "组队与项目",
 }
+AVATAR_OPTIONS = {"sun", "wave", "leaf", "star", "spark", "moon"}
+SCHOOL_EMAIL_SUFFIXES = ("@student.xjtlu.edu.cn", "@xjtlu.edu.cn")
 ADMIN_ROLES = {"platform_admin", "moderator", "teacher", "organizer"}
 WRITE_ROLES = {"platform_admin", "moderator"}
 REQUEST_LOG_LIMIT = 200
@@ -63,7 +68,7 @@ def read_data(filename: str, fallback: dict) -> dict:
 
 def write_data(filename: str, data: dict) -> None:
     path = DATA_DIR / filename
-    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
     with temporary.open("w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False, indent=2)
     temporary.replace(path)
@@ -132,6 +137,152 @@ def auth_data() -> dict:
     return data
 
 
+def user_data() -> dict:
+    """Public profile records live separately from private auth credentials."""
+    data = read_data("users.json", {"users": []})
+    data.setdefault("users", [])
+    return data
+
+
+def profile_defaults(user_id: str, name: str = "校园成员", role: str = "student") -> dict:
+    return {
+        "id": user_id,
+        "name": name or "校园成员",
+        "username": name or "校园成员",
+        "bio": "",
+        "birthday": "",
+        "avatar": "sun",
+        "profile_complete": False,
+        "role": role,
+        "department": "",
+        "year": "",
+        "tags": [],
+    }
+
+
+def profile_for_user(user_id: str, name: str = "校园成员") -> dict:
+    data = user_data()
+    profile = next((item for item in data["users"] if item.get("id") == user_id), None)
+    if profile is None:
+        profile = profile_defaults(user_id, name)
+        data["users"].append(profile)
+        write_data("users.json", data)
+    profile.setdefault("username", profile.get("name") or name or "校园成员")
+    profile.setdefault("bio", "")
+    profile.setdefault("birthday", "")
+    profile.setdefault("avatar", "sun")
+    profile.setdefault("profile_complete", bool(profile.get("username") and profile.get("avatar") and profile.get("id") == "u001"))
+    return profile
+
+
+def public_profile(user_id: str, name: str = "校园成员") -> dict:
+    profile = profile_for_user(user_id, name)
+    return {
+        "id": profile.get("id", user_id),
+        "username": profile.get("username") or profile.get("name") or name or "校园成员",
+        "name": profile.get("name") or profile.get("username") or name or "校园成员",
+        "bio": profile.get("bio", ""),
+        "birthday": profile.get("birthday", ""),
+        "avatar": profile.get("avatar", "sun"),
+        "profile_complete": bool(profile.get("profile_complete")),
+        "role": profile.get("role", "student"),
+        "department": profile.get("department", ""),
+        "year": profile.get("year", ""),
+        "tags": profile.get("tags", []),
+        "email": profile.get("email", ""),
+        "phone_masked": profile.get("phone_masked", ""),
+    }
+
+
+def auth_response(session: dict, request: Optional[Request] = None) -> dict:
+    identity_level = "campus" if session.get("campus_verified") else ("phone" if session.get("phone_authenticated") else ("email" if session.get("email_authenticated") else "guest"))
+    profile = public_profile(session_user_id(session), session.get("name", "校园成员")) if session.get("user_id") else None
+    return {
+        **session,
+        "can_publish": bool(session.get("campus_verified")),
+        "identity_level": identity_level,
+        "profile": profile,
+        "profile_complete": bool(profile and profile.get("profile_complete")),
+        "needs_onboarding": bool(profile and not profile.get("profile_complete")),
+        "dev_bypass": dev_auth_bypass_enabled(request) if request else False,
+    }
+
+
+def persist_user_profile(*, user_id: str, name: str, email: str = "", phone: str = "", role: str = "student") -> dict:
+    """Upsert a minimal profile while keeping password/phone credentials in auth.json."""
+    data = user_data()
+    users = data["users"]
+    profile = next((item for item in users if item.get("id") == user_id), None)
+    if profile is None:
+        profile = profile_defaults(user_id, name, role)
+        users.append(profile)
+    profile["name"] = name or profile.get("name") or "校园成员"
+    profile.setdefault("username", profile.get("name") or "校园成员")
+    profile.setdefault("bio", "")
+    profile.setdefault("birthday", "")
+    profile.setdefault("avatar", "sun")
+    profile.setdefault("profile_complete", False)
+    if email:
+        profile["email"] = email
+    if phone:
+        profile["phone_masked"] = f"{phone[:3]}****{phone[-4:]}"
+    profile.setdefault("created_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    write_data("users.json", data)
+    return profile
+
+
+DEV_AUTH_SESSION = {
+    "phone_authenticated": True,
+    "email_authenticated": True,
+    "phone_masked": "191****7738",
+    "campus_verified": True,
+    "user_id": "u001",
+    "name": "张三",
+    "campus_account": "student001@student.xjtlu.edu.cn",
+    "email": "zhang.san@xjtlu.edu.cn",
+}
+
+
+def dev_auth_session() -> dict:
+    session = dict(DEV_AUTH_SESSION)
+    phone = re.sub(r"\D", "", os.environ.get("SURF_DEV_PHONE", "19155147738"))
+    if len(phone) == 11:
+        session["phone_masked"] = f"{phone[:3]}****{phone[-4:]}"
+    return session
+
+
+def dev_auth_bypass_enabled(request: Request) -> bool:
+    if os.environ.get("SURF_DEV_AUTH_BYPASS", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        return False
+    host = (request.client.host if request.client else "").lower()
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def dev_fixed_phone_login_enabled(request: Request) -> bool:
+    if os.environ.get("SURF_DEV_FIXED_PHONE_LOGIN", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+        return False
+    host = (request.client.host if request.client else "").lower()
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def auth_session_for_request(request: Request) -> dict:
+    session = current_auth_session()
+    if dev_auth_bypass_enabled(request) and not session.get("campus_verified"):
+        return dev_auth_session()
+    return session
+
+
+def authenticated_session(request: Request) -> dict:
+    session = auth_session_for_request(request)
+    if not (session.get("phone_authenticated") or session.get("email_authenticated")):
+        raise HTTPException(status_code=401, detail="请先登录")
+    return session
+
+
+def session_user_id(session: dict) -> str:
+    return str(session.get("user_id") or "u001")
+
+
 def save_auth_session(session: dict) -> None:
     data = auth_data()
     data["session"] = session
@@ -144,6 +295,11 @@ def password_digest(password: str, salt: str) -> str:
 
 def valid_email(email: str) -> bool:
     return bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email))
+
+
+def valid_campus_email(email: str) -> bool:
+    normalized = email.strip().lower()
+    return valid_email(normalized) and normalized.endswith(SCHOOL_EMAIL_SUFFIXES)
 
 
 def aliyun_sms_configured() -> bool:
@@ -240,7 +396,9 @@ def verification_target(channel: str, target: str) -> str:
             raise HTTPException(status_code=400, detail="请输入 11 位手机号")
         return digits
     normalized = target.strip().lower()
-    if not valid_email(normalized):
+    if channel == "campus-email" and not valid_campus_email(normalized):
+        raise HTTPException(status_code=400, detail="学校邮箱必须使用 @student.xjtlu.edu.cn 或 @xjtlu.edu.cn 后缀")
+    if channel != "campus-email" and not valid_email(normalized):
         raise HTTPException(status_code=400, detail="请输入有效的邮箱地址")
     return normalized
 
@@ -264,7 +422,22 @@ def deliver_verification_code(channel: str, target: str, code: str) -> str:
         except (HTTPError, URLError, TimeoutError) as exc:
             raise HTTPException(status_code=502, detail="短信服务暂时不可用，请稍后重试") from exc
         return "sms-provider"
-    if channel == "email" and os.environ.get("SURF_SMTP_HOST", "").strip():
+    mail_service_url = os.environ.get("SURF_MAIL_SERVICE_URL", "").strip().rstrip("/")
+    if channel in {"email", "campus-email"} and mail_service_url:
+        payload = json.dumps({"to": target, "code": code}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        token = os.environ.get("SURF_MAIL_SERVICE_TOKEN", "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = URLRequest(f"{mail_service_url}/api/email/send-verification", data=payload, headers=headers, method="POST")
+        try:
+            with urlopen(request, timeout=8) as response:
+                if response.status >= 400:
+                    raise HTTPException(status_code=502, detail="邮件服务暂时不可用，请稍后重试")
+        except (HTTPError, URLError, TimeoutError) as exc:
+            raise HTTPException(status_code=502, detail="邮件服务暂时不可用，请稍后重试") from exc
+        return "nodemailer-service"
+    if channel in {"email", "campus-email"} and os.environ.get("SURF_SMTP_HOST", "").strip():
         sender = os.environ.get("SURF_SMTP_FROM", "").strip()
         if not sender:
             raise HTTPException(status_code=500, detail="邮件服务缺少发件人配置")
@@ -309,7 +482,7 @@ def issue_verification_code(channel: str, target: str) -> dict:
     if channel == "sms":
         configured = aliyun_sms_configured() or bool(os.environ.get("SURF_SMS_PROVIDER_URL", "").strip())
     else:
-        configured = bool(os.environ.get("SURF_SMTP_HOST", "").strip())
+        configured = bool(os.environ.get("SURF_SMTP_HOST", "").strip() or os.environ.get("SURF_MAIL_SERVICE_URL", "").strip())
     if configured:
         code = f"{secrets.randbelow(1_000_000):06d}"
     else:
@@ -341,8 +514,8 @@ def consume_verification_code(channel: str, target: str, code: str) -> None:
         VERIFICATION_CODES.pop(key, None)
 
 
-def campus_verified_session() -> dict:
-    session = current_auth_session()
+def campus_verified_session(request: Request) -> dict:
+    session = auth_session_for_request(request)
     if not session.get("campus_verified"):
         raise HTTPException(status_code=403, detail="绑定 XJTLU 校园账号后才能发布内容")
     return session
@@ -523,6 +696,7 @@ class PreferenceUpdate(BaseModel):
     interests: list[str] = Field(default_factory=list, max_length=12)
     show_context_rail: bool = True
     content_language: str = "mixed"
+    theme: str = "system"
 
 
 class PhoneLoginRequest(BaseModel):
@@ -538,12 +712,34 @@ class EmailCodeRequest(BaseModel):
     email: str = Field(min_length=5, max_length=160)
 
 
+class SchoolEmailCodeRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+
+
+class SchoolEmailBindRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    code: str = Field(min_length=4, max_length=8)
+
+
+class ProfileUpdate(BaseModel):
+    username: str = Field(min_length=2, max_length=24)
+    bio: str = Field(default="", max_length=160)
+    birthday: str = Field(default="", max_length=10)
+    avatar: str = "sun"
+
+
 class EmailLoginRequest(BaseModel):
     email: str = Field(min_length=5, max_length=160)
     password: str = Field(min_length=6, max_length=128)
 
 
 class EmailRegisterRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    code: str = Field(min_length=4, max_length=8)
+    password: str = Field(min_length=6, max_length=128)
+
+
+class PasswordResetRequest(BaseModel):
     email: str = Field(min_length=5, max_length=160)
     code: str = Field(min_length=4, max_length=8)
     password: str = Field(min_length=6, max_length=128)
@@ -569,14 +765,25 @@ def health_check():
 
 
 @app.get("/api/auth/session")
-def get_auth_session():
-    session = current_auth_session()
-    identity_level = "campus" if session.get("campus_verified") else ("phone" if session.get("phone_authenticated") else ("email" if session.get("email_authenticated") else "guest"))
-    return {**session, "can_publish": bool(session.get("campus_verified")), "identity_level": identity_level}
+def get_auth_session(request: Request):
+    session = auth_session_for_request(request)
+    return auth_response(session, request)
 
 
 @app.post("/api/auth/phone/code")
-def send_phone_code(req: PhoneCodeRequest):
+def send_phone_code(req: PhoneCodeRequest, request: Request):
+    digits = re.sub(r"\D", "", req.phone)
+    dev_phone = re.sub(r"\D", "", os.environ.get("SURF_DEV_PHONE", "19155147738"))
+    if dev_fixed_phone_login_enabled(request) and secrets.compare_digest(digits, dev_phone):
+        return {
+            "sent": True,
+            "channel": "sms",
+            "masked_target": f"{digits[:3]}****{digits[-4:]}",
+            "provider": "local-dev",
+            "debug_code": os.environ.get("SURF_MOCK_SMS_CODE", "123456"),
+            "expires_in": 600,
+            "cooldown": 0,
+        }
     return issue_verification_code("sms", req.phone)
 
 
@@ -604,13 +811,42 @@ def login_by_email(req: EmailLoginRequest):
         "campus_account": email if is_campus else "",
         "email": email,
     }
+    if account and account.get("user_id"):
+        session["user_id"] = account["user_id"]
+    persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
     save_auth_session(session)
-    return {**session, "can_publish": is_campus, "identity_level": "campus" if is_campus else "email"}
+    return auth_response(session)
 
 
 @app.post("/api/auth/email/code")
 def send_email_code(req: EmailCodeRequest):
     return issue_verification_code("email", req.email)
+
+
+@app.post("/api/auth/campus-email/code")
+def send_campus_email_code(req: SchoolEmailCodeRequest, request: Request):
+    session = authenticated_session(request)
+    if not session.get("phone_authenticated"):
+        raise HTTPException(status_code=403, detail="请先完成手机号登录")
+    return issue_verification_code("campus-email", req.email)
+
+
+@app.post("/api/auth/campus-email")
+def bind_campus_email(req: SchoolEmailBindRequest, request: Request):
+    session = authenticated_session(request)
+    if not session.get("phone_authenticated"):
+        raise HTTPException(status_code=403, detail="请先完成手机号登录")
+    email = verification_target("campus-email", req.email)
+    consume_verification_code("campus-email", email, req.code)
+    session.update({
+        "campus_verified": True,
+        "email_authenticated": True,
+        "campus_account": email,
+        "email": email,
+    })
+    persist_user_profile(user_id=session_user_id(session), name=session.get("name", "校园成员"), email=email)
+    save_auth_session(session)
+    return auth_response(session)
 
 
 @app.post("/api/auth/register")
@@ -624,6 +860,7 @@ def register_by_email(req: EmailRegisterRequest):
         raise HTTPException(status_code=409, detail="该邮箱已经注册，请直接登录")
     salt = secrets.token_hex(16)
     data.setdefault("accounts", []).append({
+        "user_id": f"email_{re.sub(r'[^A-Za-z0-9_-]', '', email.split('@', 1)[0])[:40] or 'student'}",
         "email": email,
         "password_salt": salt,
         "password_hash": password_digest(req.password, salt),
@@ -641,9 +878,10 @@ def register_by_email(req: EmailRegisterRequest):
         "campus_account": email if is_campus else "",
         "email": email,
     }
+    persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
     data["session"] = session
     write_data("auth.json", data)
-    return {**session, "can_publish": is_campus, "identity_level": "campus" if is_campus else "email"}
+    return auth_response(session)
 
 
 @app.delete("/api/auth/session")
@@ -658,29 +896,63 @@ def logout_auth_session():
         "campus_account": "",
     }
     save_auth_session(session)
-    return {**session, "can_publish": False, "identity_level": "guest"}
+    return auth_response(session)
 
 
 @app.post("/api/auth/phone")
-def login_by_phone(req: PhoneLoginRequest):
+def login_by_phone(req: PhoneLoginRequest, request: Request):
     digits = re.sub(r"\D", "", req.phone)
     if len(digits) != 11:
         raise HTTPException(status_code=400, detail="请输入 11 位手机号")
+    dev_phone = re.sub(r"\D", "", os.environ.get("SURF_DEV_PHONE", "19155147738"))
+    dev_code = os.environ.get("SURF_MOCK_SMS_CODE", "123456")
+    dev_login = dev_fixed_phone_login_enabled(request) and secrets.compare_digest(digits, dev_phone) and secrets.compare_digest(req.code.strip(), dev_code)
+    if dev_login:
+        return {**dev_auth_session(), "can_publish": True, "identity_level": "campus", "dev_bypass": True}
     if aliyun_sms_configured() or os.environ.get("SURF_SMS_PROVIDER_URL", "").strip():
         consume_verification_code("sms", digits, req.code)
     elif req.code != os.environ.get("SURF_MOCK_SMS_CODE", "123456"):
         raise HTTPException(status_code=401, detail="验证码不正确")
+    user_id = f"phone_{digits}"
+    data = auth_data()
+    account = next((item for item in data.get("accounts", []) if item.get("phone") == digits), None)
+    if account:
+        user_id = account.get("user_id") or user_id
+    else:
+        data.setdefault("accounts", []).append({
+            "user_id": user_id,
+            "phone": digits,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
     session = {
         "phone_authenticated": True,
         "email_authenticated": False,
         "phone_masked": f"{digits[:3]}****{digits[-4:]}",
         "campus_verified": False,
-        "user_id": "",
+        "user_id": user_id,
         "name": "手机访客",
         "campus_account": "",
     }
-    save_auth_session(session)
-    return {**session, "can_publish": False, "identity_level": "phone"}
+    persist_user_profile(user_id=user_id, name="手机访客", phone=digits)
+    data["session"] = session
+    write_data("auth.json", data)
+    return auth_response(session)
+
+
+@app.post("/api/auth/password/reset")
+def reset_password(req: PasswordResetRequest):
+    email = verification_target("email", req.email)
+    consume_verification_code("email", email, req.code)
+    data = auth_data()
+    account = next((item for item in data.get("accounts", []) if item.get("email") == email), None)
+    if not account:
+        raise HTTPException(status_code=404, detail="该邮箱尚未注册")
+    salt = secrets.token_hex(16)
+    account["password_salt"] = salt
+    account["password_hash"] = password_digest(req.password, salt)
+    account["password_updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    write_data("auth.json", data)
+    return {"status": "ok", "message": "密码已更新，请使用新密码登录"}
 
 
 @app.get("/api/auth/xjtlu/config")
@@ -844,7 +1116,7 @@ def mock_bind_xjtlu(req: MockCampusBindRequest):
     session.update({"campus_verified": True, "user_id": "u001", "name": "张三", "campus_account": account})
     session.pop("campus_provider", None)
     save_auth_session(session)
-    return {**session, "can_publish": True, "identity_level": "campus"}
+    return auth_response(session)
 
 
 @app.delete("/api/auth/xjtlu/binding")
@@ -854,7 +1126,7 @@ def remove_xjtlu_binding():
     session.pop("campus_provider", None)
     save_auth_session(session)
     identity_level = "email" if session.get("email_authenticated") else "phone"
-    return {**session, "can_publish": False, "identity_level": identity_level}
+    return auth_response(session)
 
 # ─── AI 对话 ───
 
@@ -997,10 +1269,10 @@ def add_comment(post_id: str, content: str, anonymous: bool = False, session: di
     return json.loads(_add_comment(post_id, content, anonymous))
 
 @app.post("/api/community/like")
-def like_post(post_id: str, user_id: str = "u001"):
+def like_post(post_id: str, session: dict = Depends(campus_verified_session)):
     from tools.community import _like_post
     import json
-    return json.loads(_like_post(post_id, user_id))
+    return json.loads(_like_post(post_id, session_user_id(session)))
 
 @app.post("/api/community/collect")
 def collect_post(post_id: str, tag: str = ""):
@@ -1107,10 +1379,10 @@ def treehole_hot():
     return json.loads(_treehole_hot())
 
 @app.post("/api/treehole/posts")
-def treehole_post(content: str, category: str = None, session: dict = Depends(campus_verified_session)):
+def treehole_post(content: str, session: dict = Depends(campus_verified_session)):
     from tools.treehole import _treehole_post
     import json
-    return json.loads(_treehole_post(content, category))
+    return json.loads(_treehole_post(content))
 
 @app.post("/api/treehole/comments")
 def treehole_comment(post_id: str, content: str, session: dict = Depends(campus_verified_session)):
@@ -1198,7 +1470,8 @@ def _opportunity_view(item: dict, user_skills: list[str], user_id: str = "u001")
 
 
 @app.get("/api/opportunities")
-def list_opportunities(keyword: str = "", skill: str = "", user_id: str = "u001"):
+def list_opportunities(keyword: str = "", skill: str = "", user_id: str = ""):
+    user_id = user_id or session_user_id(current_auth_session())
     opportunities = read_data("opportunities.json", {"opportunities": []}).get("opportunities", [])
     user = next((value for value in read_data("users.json", {"users": []}).get("users", []) if value.get("id") == user_id), {})
     user_skills = user.get("tags", [])
@@ -1219,7 +1492,8 @@ def list_opportunities(keyword: str = "", skill: str = "", user_id: str = "u001"
 
 
 @app.post("/api/opportunities/apply")
-def apply_opportunity(req: OpportunityApplicationCreate, user_id: str = "u001"):
+def apply_opportunity(req: OpportunityApplicationCreate, session: dict = Depends(authenticated_session)):
+    user_id = session_user_id(session)
     data = read_data("opportunities.json", {"opportunities": []})
     item = next((value for value in data.get("opportunities", []) if value.get("id") == req.opportunity_id), None)
     if not item or item.get("status", "published") != "published":
@@ -1243,6 +1517,42 @@ def apply_opportunity(req: OpportunityApplicationCreate, user_id: str = "u001"):
     applications.append(application)
     write_data("opportunities.json", data)
     return {"status": "ok", "application": application, "message": "申请已提交，等待招募发起人处理"}
+
+
+@app.post("/api/opportunities")
+def create_user_opportunity(req: OpportunityCreate, session: dict = Depends(authenticated_session)):
+    """Every signed-in user can start a team recruitment."""
+    data = read_data("opportunities.json", {"opportunities": []})
+    user_id = session_user_id(session)
+    owner_name = session.get("name") or "校园成员"
+    item = {
+        "id": f"opp_{uuid.uuid4().hex[:10]}",
+        "title": req.title.strip(),
+        "kind": req.kind.strip() or "项目招募",
+        "description": req.description.strip(),
+        "skills": [" ".join(str(value).strip().split())[:32] for value in req.skills if str(value).strip()][:8],
+        "tags": [" ".join(str(value).strip().split())[:24] for value in req.tags if str(value).strip()][:5],
+        "deadline": req.deadline.strip(),
+        "capacity": req.capacity,
+        "owner": owner_name,
+        "owner_id": user_id,
+        "status": "published",
+        "applications": [],
+        "created_at": time.strftime("%Y-%m-%d %H:%M"),
+    }
+    data.setdefault("opportunities", []).insert(0, item)
+    write_data("opportunities.json", data)
+    groups = read_data("groups.json", {"groups": []})
+    groups.setdefault("groups", []).insert(0, {
+        "id": f"group_{item['id']}",
+        "opportunity_id": item["id"],
+        "name": item["title"],
+        "description": item["description"] or "由招募发起人创建的项目群。",
+        "members": [user_id],
+        "messages": [],
+    })
+    write_data("groups.json", groups)
+    return {"status": "ok", "opportunity": _opportunity_view(item, [], user_id), "message": "组队招募已发布"}
 
 @app.get("/api/clubs")
 def list_clubs():
@@ -1294,13 +1604,16 @@ def list_project_groups():
 
 
 @app.get("/api/profile/preferences")
-def get_profile_preferences():
+def get_profile_preferences(request: Request):
     data = read_data("preferences.json", {})
-    return data.get("u001", {"sections": list(SECTION_LABELS), "interests": [], "show_context_rail": True, "content_language": "mixed"})
+    session = auth_session_for_request(request)
+    user_id = session_user_id(session) if (session.get("phone_authenticated") or session.get("email_authenticated")) else "u001"
+    return data.get(user_id, {"sections": list(SECTION_LABELS), "interests": [], "show_context_rail": True, "content_language": "mixed", "theme": "system"})
 
 
 @app.patch("/api/profile/preferences")
-def update_profile_preferences(req: PreferenceUpdate):
+def update_profile_preferences(req: PreferenceUpdate, request: Request):
+    user_id = session_user_id(authenticated_session(request))
     allowed = set(SECTION_LABELS)
     sections = [value for value in req.sections if value in allowed]
     if not sections:
@@ -1312,9 +1625,54 @@ def update_profile_preferences(req: PreferenceUpdate):
             interests.append(clean)
     data = read_data("preferences.json", {})
     language = req.content_language if req.content_language in {"mixed", "zh", "en"} else "mixed"
-    data["u001"] = {"sections": sections[:4], "interests": interests[:12], "show_context_rail": req.show_context_rail, "content_language": language}
+    theme = req.theme if req.theme in {"system", "light", "dark"} else "system"
+    data[user_id] = {"sections": sections[:4], "interests": interests[:12], "show_context_rail": req.show_context_rail, "content_language": language, "theme": theme}
     write_data("preferences.json", data)
-    return data["u001"]
+    return data[user_id]
+
+
+@app.get("/api/profile")
+def get_profile(request: Request):
+    session = auth_session_for_request(request)
+    if not (session.get("phone_authenticated") or session.get("email_authenticated")):
+        return public_profile("u001", "校园成员")
+    return public_profile(session_user_id(session), session.get("name", "校园成员"))
+
+
+@app.patch("/api/profile")
+def update_profile(req: ProfileUpdate, request: Request):
+    session = authenticated_session(request)
+    if req.avatar not in AVATAR_OPTIONS:
+        raise HTTPException(status_code=400, detail="头像选项无效")
+    birthday = req.birthday.strip()
+    if birthday:
+        try:
+            parsed_birthday = date.fromisoformat(birthday)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="生日格式应为 YYYY-MM-DD") from exc
+        if parsed_birthday > date.today():
+            raise HTTPException(status_code=400, detail="生日不能晚于今天")
+    username = " ".join(req.username.strip().split())
+    if len(username) < 2:
+        raise HTTPException(status_code=400, detail="用户名至少需要 2 个字符")
+    user_id = session_user_id(session)
+    data = user_data()
+    profile = next((item for item in data["users"] if item.get("id") == user_id), None)
+    if profile is None:
+        profile = profile_defaults(user_id, username)
+        data["users"].append(profile)
+    profile.update({
+        "name": username,
+        "username": username,
+        "bio": req.bio.strip(),
+        "birthday": birthday,
+        "avatar": req.avatar,
+        "profile_complete": True,
+    })
+    write_data("users.json", data)
+    session["name"] = username
+    save_auth_session(session)
+    return public_profile(user_id, username)
 
 
 @app.get("/api/profile/participation")
@@ -1323,12 +1681,15 @@ def profile_participation():
 
 
 @app.post("/api/groups/{group_id}/messages")
-def post_group_message(group_id: str, content: str = Query(min_length=1, max_length=1000)):
+def post_group_message(group_id: str, content: str = Query(min_length=1, max_length=1000), session: dict = Depends(authenticated_session)):
     data = read_data("groups.json", {"groups": []})
     group = next((item for item in data.get("groups", []) if item.get("id") == group_id), None)
     if not group:
         raise HTTPException(status_code=404, detail="项目群不存在")
-    message = {"id": f"group_msg_{uuid.uuid4().hex[:10]}", "sender": "张三", "content": content.strip(), "time": time.strftime("%Y-%m-%d %H:%M")}
+    user_id = session_user_id(session)
+    if user_id not in group.setdefault("members", []):
+        group["members"].append(user_id)
+    message = {"id": f"group_msg_{uuid.uuid4().hex[:10]}", "sender": session.get("name") or "校园成员", "sender_id": user_id, "content": content.strip(), "time": time.strftime("%Y-%m-%d %H:%M")}
     group.setdefault("messages", []).append(message)
     write_data("groups.json", data)
     return {"status": "ok", "message": message}

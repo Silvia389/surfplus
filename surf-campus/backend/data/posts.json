@@ -108,7 +108,7 @@
       "anonymous": false,
       "time": "2026-07-22 10:30",
       "likes": 15,
-      "comments_count": 3,
+      "comments_count": 2,
       "comments": [
         {
           "id": "cmt_1",
@@ -164,7 +164,7 @@
       "anonymous": true,
       "time": "2026-07-21 12:00",
       "likes": 22,
-      "comments_count": 8,
+      "comments_count": 1,
       "comments": [
         {
           "id": "cmt_3",
@@ -189,7 +189,80 @@
       "time": "2026-07-20 17:00",
       "likes": 35,
       "comments_count": 12,
-      "comments": []
+      "comments": [
+        {
+          "id": "cmt_post4_01",
+          "content": "这个题型总结很有用，感谢分享！",
+          "anonymous": false,
+          "time": "2026-07-20 17:12"
+        },
+        {
+          "id": "cmt_post4_02",
+          "content": "请问编程题主要考哪几类 list 操作？",
+          "anonymous": false,
+          "time": "2026-07-20 17:19"
+        },
+        {
+          "id": "cmt_post4_03",
+          "content": "我也觉得 dict 的嵌套访问是重点。",
+          "anonymous": true,
+          "time": "2026-07-20 17:26"
+        },
+        {
+          "id": "cmt_post4_04",
+          "content": "老师课堂上讲的切片也出了类似题。",
+          "anonymous": false,
+          "time": "2026-07-20 17:35"
+        },
+        {
+          "id": "cmt_post4_05",
+          "content": "有没有同学整理了错题？可以一起交流。",
+          "anonymous": false,
+          "time": "2026-07-20 17:44"
+        },
+        {
+          "id": "cmt_post4_06",
+          "content": "选择题比预想中更看细节。",
+          "anonymous": true,
+          "time": "2026-07-20 17:52"
+        },
+        {
+          "id": "cmt_post4_07",
+          "content": "range 和 enumerate 要分清楚。",
+          "anonymous": false,
+          "time": "2026-07-20 18:03"
+        },
+        {
+          "id": "cmt_post4_08",
+          "content": "已收藏，复习时回来对照。",
+          "anonymous": false,
+          "time": "2026-07-20 18:11"
+        },
+        {
+          "id": "cmt_post4_09",
+          "content": "简答题有一道是时间复杂度分析。",
+          "anonymous": true,
+          "time": "2026-07-20 18:24"
+        },
+        {
+          "id": "cmt_post4_10",
+          "content": "感谢学长学姐，祝大家都拿高分。",
+          "anonymous": false,
+          "time": "2026-07-20 18:40"
+        },
+        {
+          "id": "cmt_post4_11",
+          "content": "下次可以一起线上复习。",
+          "anonymous": false,
+          "time": "2026-07-20 19:05"
+        },
+        {
+          "id": "cmt_post4_12",
+          "content": "重点记住可变对象和引用关系。",
+          "anonymous": true,
+          "time": "2026-07-20 19:28"
+        }
+      ]
     },
     {
       "id": "post_5",

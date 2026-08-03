@@ -38,6 +38,14 @@ def main():
     status, phone_session = request("/api/auth/phone", "POST", {"phone": phone, "code": "123456"})
     assert status == 200 and phone_session.get("phone_authenticated"), "手机号验证码登录失败"
 
+    status, rejected_campus_email = request("/api/auth/campus-email/code", "POST", {"email": "student@example.com"})
+    assert status == 400 and "XJTLU" in rejected_campus_email.get("detail", ""), "学校邮箱验证码错误地接受了外部域名"
+    campus_email = f"campus_{int(time.time())}@student.xjtlu.edu.cn"
+    status, campus_code = request("/api/auth/campus-email/code", "POST", {"email": campus_email})
+    assert status == 200 and campus_code.get("debug_code") == "123456", "student.xjtlu.edu.cn 验证码发送失败"
+    status, campus_session = request("/api/auth/campus-email", "POST", {"email": campus_email, "code": "123456"})
+    assert status == 200 and campus_session.get("campus_verified"), "学校邮箱绑定失败"
+
     email = f"signup_{int(time.time())}@example.com"
     status, email_sent = request("/api/auth/email/code", "POST", {"email": email})
     assert status == 200 and email_sent.get("debug_code") == "123456", "邮箱验证码发送失败"

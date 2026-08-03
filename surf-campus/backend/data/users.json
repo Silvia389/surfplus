@@ -1,12 +1,120 @@
 {
   "users": [
-    { "id": "u001", "name": "张三", "role": "student", "department": "计算机科学与技术", "email": "zhang.san@xjtlu.edu.cn", "year": "大三", "tags": ["编程", "AI"] },
-    { "id": "u002", "name": "李四", "role": "student", "department": "计算机科学与技术", "email": "li.si@xjtlu.edu.cn", "year": "大二", "tags": ["设计", "前端"] },
-    { "id": "u003", "name": "王小明", "role": "student", "department": "数据科学", "email": "wang.xiaoming@xjtlu.edu.cn", "year": "大三", "tags": ["数据分析", "Python"] },
-    { "id": "u004", "name": "Sarah Chen", "role": "professor", "department": "英语语言中心", "email": "sarah.chen@xjtlu.edu.cn", "research": "学术写作、二语习得", "office_hour": "周三 14:00-16:00, CB347" },
-    { "id": "u005", "name": "张明", "role": "professor", "department": "计算机科学与技术", "email": "ming.zhang@xjtlu.edu.cn", "research": "机器学习、自然语言处理", "office_hour": "周二 15:00-17:00, EB210" },
-    { "id": "u006", "name": "李华", "role": "professor", "department": "数学科学", "email": "hua.li@xjtlu.edu.cn", "research": "代数拓扑、表示论", "office_hour": "周四 14:00-16:00, FB330" },
-    { "id": "u007", "name": "王强", "role": "professor", "department": "物理", "email": "qiang.wang@xjtlu.edu.cn", "research": "凝聚态物理", "office_hour": "周五 10:00-12:00, SB150" },
-    { "id": "u008", "name": "赵敏", "role": "professor", "department": "经济", "email": "min.zhao@xjtlu.edu.cn", "research": "微观经济学、行为经济学", "office_hour": "周一 15:00-17:00, BS309" }
+    {
+      "id": "u001",
+      "name": "树洞测试用户",
+      "username": "树洞测试用户",
+      "bio": "",
+      "birthday": "",
+      "avatar": "sun",
+      "profile_complete": true,
+      "role": "student",
+      "department": "计算机科学与技术",
+      "email": "zhang.san@xjtlu.edu.cn",
+      "year": "大三",
+      "tags": [
+        "编程",
+        "AI"
+      ]
+    },
+    {
+      "id": "u002",
+      "name": "李四",
+      "role": "student",
+      "department": "计算机科学与技术",
+      "email": "li.si@xjtlu.edu.cn",
+      "year": "大二",
+      "tags": [
+        "设计",
+        "前端"
+      ]
+    },
+    {
+      "id": "u003",
+      "name": "王小明",
+      "role": "student",
+      "department": "数据科学",
+      "email": "wang.xiaoming@xjtlu.edu.cn",
+      "year": "大三",
+      "tags": [
+        "数据分析",
+        "Python"
+      ]
+    },
+    {
+      "id": "u004",
+      "name": "Sarah Chen",
+      "role": "professor",
+      "department": "英语语言中心",
+      "email": "sarah.chen@xjtlu.edu.cn",
+      "research": "学术写作、二语习得",
+      "office_hour": "周三 14:00-16:00, CB347"
+    },
+    {
+      "id": "u005",
+      "name": "张明",
+      "role": "professor",
+      "department": "计算机科学与技术",
+      "email": "ming.zhang@xjtlu.edu.cn",
+      "research": "机器学习、自然语言处理",
+      "office_hour": "周二 15:00-17:00, EB210"
+    },
+    {
+      "id": "u006",
+      "name": "李华",
+      "role": "professor",
+      "department": "数学科学",
+      "email": "hua.li@xjtlu.edu.cn",
+      "research": "代数拓扑、表示论",
+      "office_hour": "周四 14:00-16:00, FB330"
+    },
+    {
+      "id": "u007",
+      "name": "王强",
+      "role": "professor",
+      "department": "物理",
+      "email": "qiang.wang@xjtlu.edu.cn",
+      "research": "凝聚态物理",
+      "office_hour": "周五 10:00-12:00, SB150"
+    },
+    {
+      "id": "u008",
+      "name": "赵敏",
+      "role": "professor",
+      "department": "经济",
+      "email": "min.zhao@xjtlu.edu.cn",
+      "research": "微观经济学、行为经济学",
+      "office_hour": "周一 15:00-17:00, BS309"
+    },
+    {
+      "id": "phone_19155147738",
+      "name": "手机访客",
+      "username": "手机访客",
+      "bio": "",
+      "birthday": "",
+      "avatar": "star",
+      "profile_complete": true,
+      "role": "student",
+      "department": "",
+      "year": "",
+      "tags": [],
+      "phone_masked": "191****7738",
+      "created_at": "2026-08-03T07:40:42Z"
+    },
+    {
+      "id": "email_mingyuhan25",
+      "name": "Mingyuhan25",
+      "username": "Mingyuhan25",
+      "bio": "",
+      "birthday": "",
+      "avatar": "sun",
+      "profile_complete": false,
+      "role": "student",
+      "department": "",
+      "year": "",
+      "tags": [],
+      "email": "mingyu.han25@student.xjtlu.edu.cn",
+      "created_at": "2026-08-03T08:29:05Z"
+    }
   ]
 }

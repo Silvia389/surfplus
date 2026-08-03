@@ -7,6 +7,14 @@ const SECTION_META = {
   teams: { label: '组队与项目' },
 };
 const RECOMMENDED_TAGS = ['CSE101', '期末复习', 'AI', '黑客松', '图书馆', '羽毛球'];
+const AVATAR_META = {
+  sun: { icon: 'sun', label: '晴日' },
+  wave: { icon: 'waves', label: '海风' },
+  leaf: { icon: 'leaf', label: '新芽' },
+  star: { icon: 'star', label: '星光' },
+  spark: { icon: 'sparkles', label: '灵感' },
+  moon: { icon: 'moon', label: '月亮' },
+};
 
 const state = {
   route: 'feed',
@@ -25,7 +33,6 @@ const state = {
   opportunitySkills: [],
   treeholes: [],
   treeholeText: '',
-  treeholeCategory: 'general',
   activeTreeholeComment: '',
   directoryPeople: [],
   directoryKeyword: '',
@@ -33,9 +40,10 @@ const state = {
   activeOpportunityApply: '',
   groups: [],
   conversations: [],
-  preferences: { sections: ['academic', 'campus-life', 'opportunities', 'teams'], interests: ['AI', 'CSE101'], show_context_rail: true, content_language: 'mixed' },
+  preferences: { sections: ['academic', 'campus-life', 'opportunities', 'teams'], interests: ['AI', 'CSE101'], show_context_rail: true, content_language: 'mixed', theme: 'system' },
   participation: { points: 0, records: [] },
-  authSession: { phone_authenticated: false, email_authenticated: false, campus_verified: false, can_publish: false, name: '', phone_masked: '', campus_account: '' },
+  authSession: { phone_authenticated: false, email_authenticated: false, campus_verified: false, can_publish: false, name: '', phone_masked: '', campus_account: '', needs_onboarding: false },
+  profile: { username: '', bio: '', birthday: '', avatar: 'sun', profile_complete: false },
   authConfig: { configured: false, mock_binding_enabled: true, provider: 'XJTLU UIM OAuth2' },
   tags: [],
   errors: {},
@@ -76,6 +84,20 @@ function refreshIcons() {
   if (window.lucide?.createIcons) window.lucide.createIcons({ attrs: { 'stroke-width': 1.8 } });
 }
 
+function applyTheme(theme = 'system') {
+  document.documentElement.dataset.theme = theme === 'system' ? '' : theme;
+  document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : theme === 'light' ? 'light' : '';
+  const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  const themeColor = theme === 'dark' || (theme === 'system' && prefersDark) ? '#121714' : '#f4f5f2';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColor);
+}
+
+function avatarBadge(value = 'sun', fallback = '校') {
+  const meta = AVATAR_META[value];
+  if (!meta) return `<span class="avatar">${escapeHTML(fallback)}</span>`;
+  return `<span class="avatar avatar-${escapeHTML(value)}"><i data-lucide="${escapeHTML(meta.icon)}" aria-hidden="true"></i></span>`;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) },
@@ -100,6 +122,7 @@ function showToast(message, type = 'success') {
 }
 
 const LOGIN_STORAGE_KEY = 'surf-login-complete';
+const LOGIN_ACCOUNT_KEY = 'surf-login-account';
 const mascotPhysics = new WeakMap();
 let loginPointer = { x: window.innerWidth * .28, y: window.innerHeight * .58 };
 let loginFocusTarget = null;
@@ -121,6 +144,16 @@ function rememberLogin(persistent) {
   localStorage.removeItem(LOGIN_STORAGE_KEY);
   sessionStorage.removeItem(LOGIN_STORAGE_KEY);
   (persistent ? localStorage : sessionStorage).setItem(LOGIN_STORAGE_KEY, 'true');
+}
+
+function rememberAccount(result, persistent) {
+  if (!persistent) return;
+  const account = {
+    email: result?.email || '',
+    phone: result?.phone_masked || '',
+    name: result?.name || '',
+  };
+  localStorage.setItem(LOGIN_ACCOUNT_KEY, JSON.stringify(account));
 }
 
 function setLoginMood(mood) {
@@ -199,11 +232,26 @@ function unlockApp() {
   render();
   renderRails();
   renderIdentityChrome();
+  maybeShowProfileOnboarding();
 }
 
 function syncLoginGate() {
-  if ((state.authSession.phone_authenticated || state.authSession.email_authenticated) && hasStoredLogin()) unlockApp();
+  if (state.authSession.dev_bypass || ((state.authSession.phone_authenticated || state.authSession.email_authenticated) && hasStoredLogin())) unlockApp();
   else showLoginGate();
+}
+
+function maybeShowProfileOnboarding() {
+  const dialog = $('profile-onboarding-dialog');
+  if (!dialog || dialog.open || !state.authSession.user_id) return;
+  if (!state.authSession.needs_onboarding && state.profile.profile_complete) return;
+  const form = $('profile-onboarding-form');
+  if (form && !form.dataset.hydrated) {
+    $('onboarding-username').value = state.profile.username || state.authSession.name || '';
+    form.dataset.hydrated = 'true';
+  }
+  dialog.showModal();
+  refreshIcons();
+  requestAnimationFrame(() => $('onboarding-username')?.focus());
 }
 
 function setLoginMessage(element, message, success = false) {
@@ -229,14 +277,25 @@ function failLogin(form, message) {
 
 function completeLogin(result, persistent, form) {
   state.authSession = result;
+  state.profile = result.profile || state.profile;
   rememberLogin(persistent);
+  rememberAccount(result, persistent);
   setLoginBusy(form, false);
   setLoginMessage(form?.querySelector('.login-message'), 'Welcome to SURF Campus.', true);
   pulseLoginMood('success', 620);
   window.setTimeout(() => {
     unlockApp();
     showToast('登录成功，欢迎回到 SURF Campus');
+    maybeShowProfileOnboarding();
   }, 620);
+}
+
+function initProfileOnboardingGuard() {
+  $('profile-onboarding-dialog')?.addEventListener('cancel', event => event.preventDefault());
+  const mediaQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
+  mediaQuery?.addEventListener?.('change', () => {
+    if (state.preferences.theme === 'system') applyTheme('system');
+  });
 }
 
 function switchLoginMode(mode, focus = true) {
@@ -245,7 +304,8 @@ function switchLoginMode(mode, focus = true) {
   const phoneForm = $('login-phone-form');
   const showPhone = mode === 'phone';
   emailEntryMode = 'login';
-  emailForm.hidden = showPhone || emailEntryMode !== 'login';
+  emailForm.hidden = emailEntryMode !== 'login';
+  emailForm.classList.toggle('is-secondary', showPhone && emailEntryMode === 'login');
   registerForm.hidden = showPhone || emailEntryMode !== 'register';
   phoneForm.hidden = !showPhone;
   document.querySelectorAll('[role="tab"][data-login-mode]').forEach(tab => {
@@ -306,6 +366,9 @@ function initLoginExperience() {
   const experience = $('login-experience');
   if (!experience) return;
   startMascotMotion();
+  switchLoginMode('phone', false);
+  $('remember-login').checked = hasStoredLogin() || $('remember-login').checked;
+  $('remember-phone').checked = hasStoredLogin() || $('remember-phone').checked;
 
   window.addEventListener('pointermove', event => {
     if (event.pointerType === 'touch' || loginFocusTarget) return;
@@ -314,6 +377,7 @@ function initLoginExperience() {
 
   experience.addEventListener('focusin', event => {
     if (!event.target.matches('input')) return;
+    if (event.target.closest('#email-login-form') && emailEntryMode === 'login') switchLoginMode('email', false);
     loginFocusTarget = event.target;
     setLoginMood(event.target.id === 'login-password' ? (passwordIsVisible ? 'peek' : 'password') : 'email');
   });
@@ -351,8 +415,19 @@ function initLoginExperience() {
       return;
     }
     if (event.target.closest('#forgot-password')) {
-      setLoginMessage($('email-login-message'), '请联系校园管理员重置密码。');
-      pulseLoginMood('email', 520);
+      $('password-reset-dialog')?.showModal();
+      refreshIcons();
+      return;
+    }
+    const policy = event.target.closest('[data-login-policy]');
+    if (policy) {
+      const content = policy.dataset.loginPolicy === 'privacy'
+        ? '我们只保存完成登录、找回密码和校园身份绑定所需的数据。密码使用带随机盐的 PBKDF2 哈希保存，手机号以掩码形式展示；数据仅用于 SURF Campus 的账号与社区功能。'
+        : '你可以使用手机号验证码登录，也可以使用邮箱和密码登录。发布公开内容前需要绑定 XJTLU 校园身份；匿名树洞与实名话题分开处理。';
+      $('login-policy-title').textContent = policy.dataset.loginPolicy === 'privacy' ? 'Privacy' : 'Terms';
+      $('login-policy-content').textContent = content;
+      $('login-policy-dialog')?.showModal();
+      refreshIcons();
       return;
     }
     if (event.target.closest('#create-account')) {
@@ -386,6 +461,15 @@ function initLoginExperience() {
         .catch(error => setLoginMessage($('email-register-message'), error.message));
       return;
     }
+    if (event.target.closest('#send-reset-code')) {
+      const email = $('reset-email').value.trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) { setLoginMessage($('reset-password-message'), '请输入有效的邮箱地址。'); return; }
+      const button = $('send-reset-code');
+      api('/api/auth/email/code', { method: 'POST', body: JSON.stringify({ email }) })
+        .then(response => { startCodeCountdown(button, response.cooldown || 30); showCodeSentMessage($('reset-password-message'), response, '邮箱验证码'); })
+        .catch(error => setLoginMessage($('reset-password-message'), error.message));
+      return;
+    }
     if (event.target.closest('[data-email-view]')) {
       switchEmailEntry(event.target.closest('[data-email-view]').dataset.emailView);
     }
@@ -417,7 +501,7 @@ function initLoginExperience() {
     setLoginBusy(form, true);
     try {
       const result = await api('/api/auth/phone', { method: 'POST', body: JSON.stringify({ phone, code }) });
-      completeLogin(result, false, form);
+      completeLogin(result, $('remember-phone').checked, form);
     } catch (error) {
       failLogin(form, error.message);
     }
@@ -442,6 +526,24 @@ function initLoginExperience() {
       failLogin(form, error.message);
     }
   });
+
+  $('password-reset-form')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const email = $('reset-email').value.trim();
+    const code = $('reset-code').value.trim();
+    const password = $('reset-password').value;
+    if (!/^\S+@\S+\.\S+$/.test(email) || code.length !== 6 || password.length < 6) {
+      setLoginMessage($('reset-password-message'), '请填写有效邮箱、6 位验证码和至少 6 位新密码。');
+      return;
+    }
+    try {
+      const result = await api('/api/auth/password/reset', { method: 'POST', body: JSON.stringify({ email, code, password }) });
+      setLoginMessage($('reset-password-message'), result.message || '密码已更新，请登录。', true);
+      window.setTimeout(() => $('password-reset-dialog')?.close(), 650);
+    } catch (error) { setLoginMessage($('reset-password-message'), error.message); }
+  });
+
+  document.querySelectorAll('[data-close-login-dialog]').forEach(button => button.addEventListener('click', () => button.closest('dialog')?.close()));
 }
 
 function formatTime(value) {
@@ -602,6 +704,9 @@ function renderPost(post, detail = false) {
   const comments = detail ? `<section class="detail-comments"><div class="detail-section-heading"><h3>评论</h3><span>${Number(post.comments_count || post.comments?.length || 0)} 条</span></div>${post.comments?.length ? `<div class="simple-list">${post.comments.map(comment => { const ai = state.commentAIReplies[comment.id]; return `<div class="simple-row"><span class="avatar">${comment.anonymous ? '匿' : '校'}</span><div class="simple-content"><strong>${comment.anonymous ? '匿名同学' : '校园成员'}</strong><p>${escapeHTML(comment.content)}</p><div class="simple-meta"><span>${escapeHTML(formatTime(comment.time))}</span>${comment.ai_mention_count ? '<span class="status">@AI</span>' : ''}</div>${ai ? `<div class="ai-answer comment-ai-answer"><strong>AI 回答</strong><p>${escapeHTML(ai.reply || '暂时没有足够依据回答。')}</p><small>${escapeHTML(ai.uncertainty || '基于当前帖子上下文；重要事项请以官方信息为准。')}</small></div>` : ''}</div></div>`; }).join('')}</div>` : '<div class="detail-empty">还没有评论，成为第一个回应的人。</div>'}</section>` : '';
   const collectionTags = (post.collection_tags || []).map(tag => `<span class="inline-tag">#${escapeHTML(tag)}</span>`).join('');
   const collectionPanel = state.activeCollectionPost === post.id ? `<form class="collection-panel" data-collection-form="${escapeHTML(post.id)}"><div class="detail-section-heading"><div><strong>收藏到自己的 Tag</strong><small>收藏和个人 Tag 一次完成，Tag 由你自定义。</small></div><button class="icon-button" type="button" data-close-collection="${escapeHTML(post.id)}" aria-label="关闭"><i data-lucide="x"></i></button></div>${collectionTags ? `<div class="post-tags">${collectionTags}</div>` : ''}<div class="search-form-large"><input class="field" name="tag" maxlength="24" placeholder="例如：待复习、找队友、灵感"><button class="button button-small" type="submit">${post.collected ? '添加 Tag' : '收藏并添加 Tag'}</button></div>${post.collected ? `<button class="button button-secondary button-small" type="button" data-remove-collection="${escapeHTML(post.id)}">取消收藏</button>` : ''}</form>` : '';
+  const likeAction = state.authSession.can_publish
+    ? `<button class="action-button ${post.liked ? 'is-active' : ''}" type="button" data-like-post="${post.id}" aria-pressed="${post.liked ? 'true' : 'false'}"><i data-lucide="heart"></i><span class="label">${post.liked ? '已赞' : '赞'}</span><span>${post.likes || ''}</span></button>`
+    : `<button class="action-button is-locked" type="button" data-route="identity" title="绑定学校邮箱后才能点赞"><i data-lucide="heart-off"></i><span class="label">绑定后点赞</span></button>`;
   return `<article class="post" data-post-id="${escapeHTML(post.id)}">
     <header class="post-head"><span class="avatar post-avatar">${escapeHTML(postAvatar(post))}</span><div class="post-author"><strong>${escapeHTML(post.anonymous ? '匿名同学' : post.author)}</strong><span>${escapeHTML(formatTime(post.time))} · ${postLanguage(post)}</span></div><span class="section-label">${escapeHTML(section)}</span></header>
     ${post.title ? `<h2 class="post-title"><button class="post-title-button" type="button" data-open-post="${escapeHTML(post.id)}">${escapeHTML(post.title)}</button></h2>` : ''}
@@ -609,7 +714,7 @@ function renderPost(post, detail = false) {
     ${tags ? `<div class="post-tags">${tags}</div>` : ''}
     ${renderPostMedia(post)}
     <div class="post-actions">
-      <button class="action-button ${post.liked ? 'is-active' : ''}" type="button" data-like-post="${post.id}" aria-pressed="${post.liked ? 'true' : 'false'}"><i data-lucide="heart"></i><span class="label">${post.liked ? '已赞' : '赞'}</span><span>${post.likes || ''}</span></button>
+      ${likeAction}
       <button class="action-button" type="button" data-comment-post="${post.id}"><i data-lucide="message-circle"></i><span class="label">评论</span><span>${post.comments_count || ''}</span></button>
       <button class="action-button ${post.collected ? 'is-active' : ''}" type="button" data-collect-post="${post.id}" aria-expanded="${state.activeCollectionPost === post.id}" aria-label="收藏并添加 Tag"><i data-lucide="bookmark-plus"></i><span class="label">${post.collected ? '已收藏 / Tag' : '收藏并加 Tag'}</span></button>
       <button class="action-button" type="button" data-ai-post="${post.id}"><i data-lucide="sparkles"></i><span class="label">问 AI</span></button>
@@ -722,6 +827,10 @@ function renderEvents() {
 }
 
 function renderOpportunities() {
+  const canStart = Boolean(state.authSession.phone_authenticated || state.authSession.email_authenticated);
+  const createPanel = canStart
+    ? `<section class="search-panel team-create-panel"><div class="detail-section-heading"><div><strong>发起一个组队</strong><small>每位已登录用户都可以创建招募，发布后会自动生成项目群。</small></div><span class="status success">可发布</span></div><form id="opportunity-create-form"><div class="search-form-large"><input class="field" name="title" maxlength="160" placeholder="招募标题，例如：一起参加 AI 黑客松" required><select class="field" name="kind"><option>项目招募</option><option>比赛招募</option><option>课程项目</option><option>科研合作</option></select></div><div class="search-form-large"><input class="field" name="skills" placeholder="需要的技能，用逗号分隔"><input class="field" name="deadline" placeholder="截止日期，例如 2026-08-15"><input class="field" name="capacity" type="number" min="1" max="1000" value="3" aria-label="招募人数"></div><textarea class="field" name="description" maxlength="1200" rows="3" placeholder="说说项目目标、时间安排和你希望找到的队友"></textarea><div class="composer-bottom"><span class="simple-meta">登录身份：${escapeHTML(state.authSession.name || state.authSession.phone_masked || '校园成员')}</span><button class="button" type="submit"><i data-lucide="users-round"></i>发布组队</button></div></form></section>`
+    : `<section class="identity-card composer-gate"><div class="detail-section-heading"><div><strong>登录后发起组队</strong><small>手机或邮箱登录后即可创建招募。</small></div><span class="status important">需要登录</span></div></section>`;
   const content = state.errors.opportunities
     ? stateBlock('组队招募暂时无法加载', '请稍后重试，已提交的申请不会丢失。', 'cloud-off')
     : state.opportunities.length
@@ -733,7 +842,7 @@ function renderOpportunities() {
         return `<article class="simple-row opportunity-row"><span class="simple-icon"><i data-lucide="users-round"></i></span><div class="simple-content"><strong>${escapeHTML(item.title)}</strong><p>${escapeHTML(item.description || '')}</p><div class="post-tags">${skillTags}</div><div class="simple-meta"><span>${escapeHTML(item.kind || '项目招募')}</span><span>截止 ${escapeHTML(item.deadline || '待定')}</span><span>${Number(item.applications_count || 0)} / ${Number(item.capacity || 0)} 人</span><span class="status ${item.match_score ? 'success' : ''}">${escapeHTML(item.match_reason || '等待匹配')}</span></div></div><div class="row-actions">${application ? `<span class="status ${application.status === 'accepted' ? 'success' : application.status === 'rejected' ? 'hidden' : ''}">${application.status === 'accepted' ? '已通过' : application.status === 'rejected' ? '未通过' : '申请中'}</span>` : `<button class="button button-secondary button-small" type="button" data-apply-opportunity="${escapeHTML(item.id)}" aria-expanded="${applyOpen}" aria-controls="opportunity-apply-${escapeHTML(item.id)}">申请加入</button>`}</div>${applyForm}</article>`;
       }).join('')}</div>`
       : stateBlock('还没有公开招募', '项目发起人发布比赛、科研或课程项目后会出现在这里。', 'users-round');
-  $('view-root').innerHTML = `${pageHeader('Teams & projects', '组队与项目', '按技能查看项目、比赛和科研招募，申请状态会保留在当前身份下。')}<section class="search-panel"><div class="simple-meta"><span>你的技能</span>${state.opportunitySkills.map(skill => `<span class="inline-tag">${escapeHTML(skill)}</span>`).join('') || '<span class="status">暂未设置</span>'}</div></section>${content}`;
+  $('view-root').innerHTML = `${pageHeader('Teams & projects', '组队与项目', '按技能查看项目、比赛和科研招募，申请状态会保留在当前身份下。')}${createPanel}<section class="search-panel"><div class="simple-meta"><span>你的技能</span>${state.opportunitySkills.map(skill => `<span class="inline-tag">${escapeHTML(skill)}</span>`).join('') || '<span class="status">暂未设置</span>'}</div></section>${content}`;
   refreshIcons();
 }
 
@@ -757,32 +866,31 @@ function rankPosts(posts) {
 
 function renderPreferences() {
   const sections = Object.entries(SECTION_META).filter(([key]) => key !== 'all').map(([key, meta]) => `<label class="identity-toggle"><input type="checkbox" name="sections" value="${key}" ${state.preferences.sections.includes(key) ? 'checked' : ''}><span>${meta.label}</span></label>`).join('');
+  const profile = state.profile || {};
+  const avatars = Object.entries(AVATAR_META).map(([key, meta]) => `<label class="avatar-choice"><input type="radio" name="avatar" value="${key}" ${profile.avatar === key ? 'checked' : ''}><span class="avatar avatar-${key}"><i data-lucide="${meta.icon}"></i></span><small>${meta.label}</small></label>`).join('');
   const records = state.participation.records?.length ? state.participation.records.map(item => `<div class="simple-row"><span class="simple-icon"><i data-lucide="badge-check"></i></span><div class="simple-content"><strong>${escapeHTML(item.label)}</strong><div class="simple-meta"><span>${escapeHTML(item.time)}</span><span>${escapeHTML(item.type)}</span></div></div><span class="status success">+${Number(item.points || 0)}</span></div>`).join('') : '<div class="empty">暂无参与记录</div>';
-  $('view-root').innerHTML = `${pageHeader('Profile preferences', '首页偏好与参与记录', '选择更常看的分区和兴趣，首页会优先排列匹配话题；重要通知仍然保持独立。', '<button class="button button-secondary button-small" type="button" data-route="feed"><i data-lucide="arrow-left"></i>返回话题</button>')}<section class="search-panel"><form id="preferences-form"><div class="field-label">首页分区</div><div class="preference-grid">${sections}</div><label class="field-label" for="preference-interests">兴趣 Tag</label><input class="field" id="preference-interests" name="interests" value="${escapeHTML(state.preferences.interests.join(', '))}" placeholder="例如 AI, 羽毛球, CSE101"><label class="field-label" for="content-language">内容语言</label><select class="field" id="content-language" name="content_language"><option value="mixed" ${state.preferences.content_language === 'mixed' ? 'selected' : ''}>中英混合</option><option value="zh" ${state.preferences.content_language === 'zh' ? 'selected' : ''}>中文优先</option><option value="en" ${state.preferences.content_language === 'en' ? 'selected' : ''}>English first</option></select><label class="identity-toggle"><input type="checkbox" name="show_context_rail" ${state.preferences.show_context_rail ? 'checked' : ''}><span>显示桌面端校园速览</span></label><button class="button" type="submit"><i data-lucide="save"></i>保存偏好</button></form></section><section class="result-section"><h2>参与记录 <span>${Number(state.participation.points || 0)} 积分</span></h2><div class="simple-list">${records}</div></section>`;
+  const theme = ['system', 'light', 'dark'].map(value => `<label class="theme-choice"><input type="radio" name="theme" value="${value}" ${state.preferences.theme === value ? 'checked' : ''}><span>${value === 'system' ? '跟随系统' : value === 'light' ? '明亮模式' : '黑暗模式'}</span></label>`).join('');
+  $('view-root').innerHTML = `${pageHeader('Profile preferences', '个人资料与设置', '资料用于你的公开身份，偏好和主题设置会保存到当前账号。', '<button class="button button-secondary button-small" type="button" data-route="feed"><i data-lucide="arrow-left"></i>返回话题</button>')}<section class="identity-card profile-panel"><div class="detail-section-heading"><div><span class="eyebrow">Profile</span><h2>你的公开资料</h2></div><span class="status ${profile.profile_complete ? 'success' : 'important'}">${profile.profile_complete ? '已完成' : '待完成'}</span></div><form id="profile-form"><div class="avatar-picker" role="radiogroup" aria-label="选择头像">${avatars}</div><label class="field-label" for="profile-username">用户名</label><input class="field" id="profile-username" name="username" minlength="2" maxlength="24" value="${escapeHTML(profile.username || state.authSession.name || '')}" required><label class="field-label" for="profile-bio">简介 <span class="field-hint">可选</span></label><textarea class="field" id="profile-bio" name="bio" maxlength="160" rows="3" placeholder="一句话介绍你的兴趣或正在做的事">${escapeHTML(profile.bio || '')}</textarea><label class="field-label" for="profile-birthday">生日 <span class="field-hint">可选</span></label><input class="field" id="profile-birthday" name="birthday" type="date" value="${escapeHTML(profile.birthday || '')}"><p class="login-message" id="profile-message" aria-live="polite"></p><button class="button" type="submit"><i data-lucide="save"></i>保存资料</button></form></section><section class="search-panel"><form id="preferences-form"><div class="field-label">首页分区</div><div class="preference-grid">${sections}</div><label class="field-label" for="preference-interests">兴趣 Tag</label><input class="field" id="preference-interests" name="interests" value="${escapeHTML(state.preferences.interests.join(', '))}" placeholder="例如 AI, 羽毛球, CSE101"><label class="field-label" for="content-language">内容语言</label><select class="field" id="content-language" name="content_language"><option value="mixed" ${state.preferences.content_language === 'mixed' ? 'selected' : ''}>中英混合</option><option value="zh" ${state.preferences.content_language === 'zh' ? 'selected' : ''}>中文优先</option><option value="en" ${state.preferences.content_language === 'en' ? 'selected' : ''}>English first</option></select><div class="field-label">主题模式</div><div class="theme-grid">${theme}</div><label class="identity-toggle"><input type="checkbox" name="show_context_rail" ${state.preferences.show_context_rail ? 'checked' : ''}><span>显示桌面端校园速览</span></label><button class="button" type="submit"><i data-lucide="save"></i>保存设置</button></form></section><section class="result-section"><h2>参与记录 <span>${Number(state.participation.points || 0)} 积分</span></h2><div class="simple-list">${records}</div></section>`;
   refreshIcons();
 }
 
 function renderIdentity() {
   const session = state.authSession;
   const verified = Boolean(session.campus_verified);
-  const phoneForm = `<section class="identity-card"><div><span class="eyebrow">Phone access</span><h2>手机验证码登录</h2></div><p>手机登录用于浏览校园内容，不授予发帖、评论或课程提问权限。</p><form id="phone-login-form"><div class="search-form-large"><input class="field" name="phone" inputmode="tel" maxlength="11" placeholder="11 位手机号" required><input class="field" name="code" inputmode="numeric" maxlength="6" placeholder="本地验证码 123456" required><button class="button" type="submit">手机登录</button></div></form></section>`;
-  const bindActions = session.phone_authenticated && !verified ? `<div class="identity-actions"><button class="button" type="button" id="xjtlu-bind"><i data-lucide="external-link"></i>绑定 XJTLU 账号</button>${state.authConfig.mock_binding_enabled ? '<button class="button button-secondary" type="button" id="mock-xjtlu-bind">本地验证绑定</button>' : ''}</div>` : '';
+  const phoneForm = `<section class="identity-card"><div><span class="eyebrow">Phone access</span><h2>手机验证码登录</h2></div><p>手机登录用于浏览校园内容，不授予发帖、评论或课程提问权限。</p><form data-identity-phone-login><div class="search-form-large"><input class="field" name="phone" inputmode="tel" maxlength="11" placeholder="11 位手机号" required><input class="field" name="code" inputmode="numeric" maxlength="6" placeholder="本地验证码 123456" required><button class="button" type="submit">手机登录</button></div></form></section>`;
+  const bindActions = session.phone_authenticated && !verified ? `<section class="identity-card"><div class="detail-section-heading"><div><span class="eyebrow">School email</span><h2>绑定学校邮箱</h2></div><span class="status important">绑定后可互动</span></div><p>验证码只会发送到 <strong>@student.xjtlu.edu.cn</strong> 或 <strong>@xjtlu.edu.cn</strong> 邮箱。手机号登录但未完成绑定时，仍然不能发帖、评论或点赞。</p><form id="campus-email-bind-form"><div class="search-form-large"><input class="field" id="campus-email" name="email" type="email" placeholder="name@student.xjtlu.edu.cn" required><div class="login-input-wrap login-code-wrap"><input class="field" id="campus-email-code" name="code" inputmode="numeric" maxlength="6" placeholder="6 位验证码" required><button class="send-code-button" id="send-campus-email-code" type="button">获取验证码</button></div></div><p class="login-message" id="campus-email-message" aria-live="polite"></p><button class="button" type="submit"><i data-lucide="badge-check"></i>验证并开启互动</button></form><div class="identity-actions">${state.authConfig.configured ? '<button class="button button-secondary" type="button" id="xjtlu-bind"><i data-lucide="external-link"></i>改用学校单点登录</button>' : ''}${state.authConfig.mock_binding_enabled ? '<button class="button button-secondary" type="button" id="mock-xjtlu-bind">本地验证绑定</button>' : ''}</div></section>` : '';
   const verifiedCard = verified ? `<section class="identity-card"><div class="detail-section-heading"><div><span class="eyebrow">Campus verified</span><h2>校内身份已验证</h2></div><span class="status success">可发布</span></div><p>${escapeHTML(session.name || '校园成员')} · ${escapeHTML(session.campus_account || '')}<br>${escapeHTML(session.phone_masked || '')}</p><div class="identity-actions"><button class="button button-secondary" type="button" data-route="preferences"><i data-lucide="sliders-horizontal"></i>首页偏好</button><button class="button button-secondary" type="button" id="remove-campus-binding">切换到手机访客</button></div></section>` : `<section class="identity-card"><div class="detail-section-heading"><div><span class="eyebrow">Campus verification</span><h2>绑定 XJTLU 校园身份</h2></div><span class="status important">不可发布</span></div><p>当前 ${escapeHTML(session.phone_masked || '手机号')} 只能浏览。完成学校账号授权后，才能发帖和参与公开讨论。</p>${bindActions}<div class="identity-provider"><i data-lucide="shield-check"></i><span>${state.authConfig.configured ? '学校 OAuth2 已配置，将跳转到 XJTLU Authentication Centre。' : '本地尚未配置学校发放的 OAuth2 client_id 与回调地址；可使用本地验证绑定测试权限闭环。'}</span></div></section>`;
   const logoutCard = session.phone_authenticated ? '<section class="identity-card"><div class="detail-section-heading"><div><span class="eyebrow">Session</span><h2>退出当前账号</h2></div></div><p>退出后将返回互动登录界面。</p><button class="button button-secondary" type="button" id="logout-session"><i data-lucide="log-out"></i>退出登录</button></section>' : '';
-  $('view-root').innerHTML = `${pageHeader('Identity & access', '身份与登录', '手机账号负责基础访问，XJTLU 账号负责校内身份验证和发布权限。', '<button class="button button-secondary button-small" type="button" data-route="feed"><i data-lucide="arrow-left"></i>返回话题</button>')}${verifiedCard}${verified ? phoneForm : ''}${session.phone_authenticated ? '' : phoneForm}${logoutCard}`;
+  $('view-root').innerHTML = `${pageHeader('Identity & access', '身份与登录', '手机号负责基础访问，XJTLU 学校邮箱负责校内身份验证和互动权限。', '<button class="button button-secondary button-small" type="button" data-route="feed"><i data-lucide="arrow-left"></i>返回话题</button>')}${verifiedCard}${verified ? phoneForm : ''}${session.phone_authenticated ? '' : phoneForm}${logoutCard}`;
   refreshIcons();
 }
 
 function renderTreehole() {
-  const categories = [
-    ['general', '随手说'], ['study-pressure', '学业压力'], ['campus-feedback', '校园反馈'], ['relationship', '人际关系'],
-  ];
-  const composer = `<section class="composer treehole-composer"><form id="treehole-form"><div class="composer-top"><span class="avatar">匿</span><div class="composer-body"><textarea id="treehole-text" name="content" maxlength="1200" placeholder="匿名写下一个只属于树洞的校园处境…">${escapeHTML(state.treeholeText)}</textarea><div class="composer-bottom"><div class="composer-tools"><select class="field" id="treehole-category" name="category">${categories.map(([key, label]) => `<option value="${key}" ${state.treeholeCategory === key ? 'selected' : ''}>${label}</option>`).join('')}</select><span class="status">前台匿名，违规内容可由管理端追溯</span></div><button class="button" type="submit" ${state.treeholeText.trim() ? '' : 'disabled'}><i data-lucide="send"></i>投进树洞</button></div></div></div></form></section>`;
+  const composer = `<section class="composer treehole-composer"><form id="treehole-form"><div class="composer-top"><span class="avatar">匿</span><div class="composer-body"><textarea id="treehole-text" name="content" maxlength="1200" placeholder="匿名写下一个只属于树洞的校园处境…">${escapeHTML(state.treeholeText)}</textarea><div class="composer-bottom"><div class="composer-tools"><span class="status">匿名树洞 · 前台匿名，违规内容可由管理端追溯</span></div><button class="button" type="submit" ${state.treeholeText.trim() ? '' : 'disabled'}><i data-lucide="send"></i>投进树洞</button></div></div></div></form></section>`;
   const list = state.errors.treeholes ? stateBlock('树洞暂时无法加载', state.errors.treeholes, 'cloud-off') : state.treeholes.length ? `<div class="simple-list">${state.treeholes.map(item => {
     const comments = item.comments?.length ? `<div class="treehole-comments">${item.comments.map(comment => `<div class="simple-row"><span class="avatar">匿</span><div class="simple-content"><p>${escapeHTML(comment.content)}</p><div class="simple-meta"><span>${escapeHTML(formatTime(comment.time))}</span><span class="status">匿名评论</span></div></div></div>`).join('')}</div>` : '';
     const commentPanel = state.activeTreeholeComment === item.id ? `<form class="search-panel treehole-comment-form" data-treehole-comment-form="${escapeHTML(item.id)}"><div class="search-form-large"><input class="field" name="content" maxlength="600" placeholder="匿名回应这个处境…" required><button class="button button-small" type="submit">匿名评论</button></div></form>` : '';
-    const category = categories.find(([key]) => key === item.category)?.[1] || '随手说';
-    return `<article class="post treehole-post"><header class="post-head"><span class="avatar post-avatar">匿</span><div class="post-author"><strong>匿名同学</strong><span>${escapeHTML(formatTime(item.time || item['时间']))}</span></div><span class="section-label">${escapeHTML(category)}</span></header><p class="post-copy">${escapeHTML(item.content || item['内容'])}</p><div class="post-actions"><button class="action-button" type="button" data-treehole-comment="${escapeHTML(item.id)}"><i data-lucide="message-circle"></i><span class="label">评论</span><span>${item.comments_count || ''}</span></button><button class="action-button report" type="button" data-treehole-report="${escapeHTML(item.id)}"><i data-lucide="flag"></i><span class="label">举报</span></button>${item.reported ? '<span class="status important">已进入审核</span>' : ''}</div>${commentPanel}${comments}</article>`;
+    return `<article class="post treehole-post"><header class="post-head"><span class="avatar post-avatar">匿</span><div class="post-author"><strong>匿名同学</strong><span>${escapeHTML(formatTime(item.time || item['时间']))}</span></div><span class="section-label">匿名树洞</span></header><p class="post-copy">${escapeHTML(item.content || item['内容'])}</p><div class="post-actions"><button class="action-button" type="button" data-treehole-comment="${escapeHTML(item.id)}"><i data-lucide="message-circle"></i><span class="label">评论</span><span>${item.comments_count || ''}</span></button><button class="action-button report" type="button" data-treehole-report="${escapeHTML(item.id)}"><i data-lucide="flag"></i><span class="label">举报</span></button>${item.reported ? '<span class="status important">已进入审核</span>' : ''}</div>${commentPanel}${comments}</article>`;
   }).join('')}</div>` : stateBlock('树洞里还没有内容', '发布一个匿名处境，公共实名话题流不会展示它。', 'lock-keyhole');
   $('view-root').innerHTML = `${pageHeader('Anonymous space', '匿名树洞', '树洞不默认混入实名公共话题流；按场景匿名表达，并保留必要的安全追溯。')}${composer}${list}`;
   refreshIcons();
@@ -831,6 +939,7 @@ function renderRails() {
 
 function renderIdentityChrome() {
   const verified = Boolean(state.authSession.campus_verified);
+  const profile = state.profile || {};
   const note = $('identity-note-text');
   if (note) note.innerHTML = verified ? '校内身份已验证<br><small>公开内容默认实名</small>' : '手机访客<br><small>绑定 XJTLU 后可发布</small>';
   const icon = $('identity-note')?.querySelector('i, svg');
@@ -838,9 +947,12 @@ function renderIdentityChrome() {
   const name = document.querySelector('.profile-button strong');
   const meta = document.querySelector('.profile-button small');
   const avatar = document.querySelector('.profile-button .avatar');
-  if (name) name.textContent = state.authSession.name || '手机访客';
-  if (meta) meta.textContent = verified ? 'XJTLU 校内身份' : '仅浏览';
-  if (avatar) avatar.textContent = verified ? (state.authSession.name || '校').slice(0, 1) : '访';
+  if (name) name.textContent = profile.username || state.authSession.name || '手机访客';
+  if (meta) meta.textContent = profile.bio || (verified ? 'XJTLU 校内身份' : '仅浏览');
+  if (avatar) {
+    avatar.className = `avatar avatar-${profile.avatar || 'sun'}`;
+    avatar.innerHTML = `<i data-lucide="${AVATAR_META[profile.avatar]?.icon || 'user-round'}" aria-hidden="true"></i>`;
+  }
   refreshIcons();
 }
 
@@ -886,6 +998,7 @@ async function loadInitialData() {
     directory: api('/api/directory'),
     groups: api('/api/groups'),
     conversations: api('/api/messaging/conversations'),
+    profile: api('/api/profile'),
     preferences: api('/api/profile/preferences'),
     participation: api('/api/profile/participation'),
     authSession: api('/api/auth/session'),
@@ -912,6 +1025,7 @@ async function loadInitialData() {
     if (key === 'directory') state.directoryPeople = asArray(data).map(person => ({ id: person.id, name: person['姓名'], role: person['角色'], department: person['学院'], email: person['邮箱'], year: person['年级'], tags: person.tags || [] }));
     if (key === 'groups') state.groups = asArray(data, 'groups');
     if (key === 'conversations') state.conversations = asArray(data, 'conversations');
+    if (key === 'profile') state.profile = { ...state.profile, ...data };
     if (key === 'preferences') state.preferences = { ...state.preferences, ...data };
     if (key === 'participation') state.participation = data;
     if (key === 'authSession') state.authSession = data;
@@ -920,10 +1034,12 @@ async function loadInitialData() {
   });
   state.posts = rankPosts(state.posts);
   state.loading = false;
+  applyTheme(state.preferences.theme);
   render();
   renderRails();
   renderIdentityChrome();
   syncLoginGate();
+  maybeShowProfileOnboarding();
 }
 
 function routeTo(route) {
@@ -1121,6 +1237,7 @@ async function likePost(id) {
     const update = post => post.id === id ? { ...post, likes: result.likes, liked: Boolean(result.liked) } : post;
     state.posts = state.posts.map(update);
     if (state.selectedPost?.id === id) state.selectedPost = update(state.selectedPost);
+    showToast(result.liked ? '已点赞' : '已取消点赞');
     render();
   } catch (error) { showToast(error.message, 'error'); }
 }
@@ -1154,12 +1271,10 @@ async function refreshTreeholes() {
 async function submitTreehole(form) {
   const values = new FormData(form);
   const content = String(values.get('content') || '').trim();
-  const category = String(values.get('category') || state.treeholeCategory || 'general');
   if (!content) return;
   try {
-    await api(`/api/treehole/posts?content=${encodeURIComponent(content)}&category=${encodeURIComponent(category)}`, { method: 'POST' });
+    await api(`/api/treehole/posts?content=${encodeURIComponent(content)}`, { method: 'POST' });
     state.treeholeText = '';
-    state.treeholeCategory = category;
     await refreshTreeholes();
     showToast('匿名内容已进入树洞，不会出现在实名公共流');
     render();
@@ -1201,12 +1316,26 @@ function bindEvents() {
     const route = event.target.closest('[data-route]');
     if (route) { routeTo(route.dataset.route); return; }
     if (event.target.closest('#xjtlu-bind')) { api('/api/auth/xjtlu/start').then(result => { window.location.assign(result.authorization_url); }).catch(error => showToast(error.message, 'error')); return; }
-    if (event.target.closest('#mock-xjtlu-bind')) { api('/api/auth/xjtlu/mock-bind', { method: 'POST', body: JSON.stringify({ account: 'student001@student.xjtlu.edu.cn' }) }).then(result => { state.authSession = result; showToast('本地校内身份已绑定'); render(); renderIdentityChrome(); }).catch(error => showToast(error.message, 'error')); return; }
+    if (event.target.closest('#send-campus-email-code')) {
+      const email = $('campus-email')?.value.trim().toLowerCase();
+      if (!/^\S+@(?:student\.)?xjtlu\.edu\.cn$/i.test(email)) {
+        setLoginMessage($('campus-email-message'), '请输入以 @student.xjtlu.edu.cn 或 @xjtlu.edu.cn 结尾的学校邮箱。');
+        $('campus-email')?.focus();
+        return;
+      }
+      const button = $('send-campus-email-code');
+      api('/api/auth/campus-email/code', { method: 'POST', body: JSON.stringify({ email }) })
+        .then(response => { startCodeCountdown(button, response.cooldown || 30); showCodeSentMessage($('campus-email-message'), response, '学校邮箱验证码'); })
+        .catch(error => setLoginMessage($('campus-email-message'), error.message));
+      return;
+    }
+    if (event.target.closest('#mock-xjtlu-bind')) { api('/api/auth/xjtlu/mock-bind', { method: 'POST', body: JSON.stringify({ account: 'student001@student.xjtlu.edu.cn' }) }).then(result => { state.authSession = result; state.profile = result.profile || state.profile; showToast('本地校内身份已绑定'); render(); renderIdentityChrome(); }).catch(error => showToast(error.message, 'error')); return; }
     if (event.target.closest('#remove-campus-binding')) { api('/api/auth/xjtlu/binding', { method: 'DELETE' }).then(result => { state.authSession = result; showToast('已切换为手机访客，仅可浏览'); render(); renderIdentityChrome(); }).catch(error => showToast(error.message, 'error')); return; }
     if (event.target.closest('#logout-session')) {
       api('/api/auth/session', { method: 'DELETE' }).then(result => {
         state.authSession = result;
         localStorage.removeItem(LOGIN_STORAGE_KEY);
+        localStorage.removeItem(LOGIN_ACCOUNT_KEY);
         sessionStorage.removeItem(LOGIN_STORAGE_KEY);
         state.route = 'feed';
         $('email-login-form')?.reset();
@@ -1353,7 +1482,6 @@ function bindEvents() {
 
   document.addEventListener('change', event => {
     if (event.target.id === 'composer-section') state.composerSection = event.target.value;
-    if (event.target.id === 'treehole-category') state.treeholeCategory = event.target.value;
     if (event.target.id === 'composer-anonymous') state.composerAnonymous = event.target.checked;
     if (event.target.id === 'image-input') queueFiles(event.target.files, 'image');
     if (event.target.id === 'video-input') queueFiles(event.target.files, 'video');
@@ -1375,10 +1503,39 @@ function bindEvents() {
   });
 
   document.addEventListener('submit', event => {
-    if (event.target.id === 'phone-login-form') { event.preventDefault(); const form = new FormData(event.target); api('/api/auth/phone', { method: 'POST', body: JSON.stringify({ phone: form.get('phone'), code: form.get('code') }) }).then(result => { state.authSession = result; showToast('手机登录成功，绑定校园账号后可发布'); render(); renderIdentityChrome(); }).catch(error => showToast(error.message, 'error')); }
+    if (event.target.matches('[data-identity-phone-login]')) { event.preventDefault(); const form = new FormData(event.target); api('/api/auth/phone', { method: 'POST', body: JSON.stringify({ phone: form.get('phone'), code: form.get('code') }) }).then(result => { state.authSession = result; state.profile = result.profile || state.profile; rememberLogin(true); rememberAccount(result, true); showToast('手机登录成功，绑定学校邮箱后可发布'); render(); renderIdentityChrome(); maybeShowProfileOnboarding(); }).catch(error => showToast(error.message, 'error')); }
+    if (event.target.id === 'profile-onboarding-form' || event.target.id === 'profile-form') {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const payload = { username: String(form.get('username') || '').trim(), bio: String(form.get('bio') || '').trim(), birthday: String(form.get('birthday') || ''), avatar: String(form.get('avatar') || 'sun') };
+      api('/api/profile', { method: 'PATCH', body: JSON.stringify(payload) }).then(profile => {
+        state.profile = profile;
+        state.authSession = { ...state.authSession, name: profile.username, needs_onboarding: false, profile_complete: true, profile };
+        if (event.target.id === 'profile-onboarding-form') {
+          $('profile-onboarding-dialog')?.close();
+          event.target.dataset.hydrated = '';
+          showToast('资料已保存，欢迎进入校园');
+        } else {
+          showToast('个人资料已保存');
+        }
+        render(); renderRails(); renderIdentityChrome();
+      }).catch(error => setLoginMessage($(event.target.id === 'profile-onboarding-form' ? 'profile-onboarding-message' : 'profile-message'), error.message));
+    }
+    if (event.target.id === 'campus-email-bind-form') {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const email = String(form.get('email') || '').trim().toLowerCase();
+      const code = String(form.get('code') || '').trim();
+      api('/api/auth/campus-email', { method: 'POST', body: JSON.stringify({ email, code }) }).then(result => {
+        state.authSession = result;
+        state.profile = result.profile || state.profile;
+        showToast('学校邮箱已验证，现在可以发帖、评论和点赞');
+        render(); renderRails(); renderIdentityChrome();
+      }).catch(error => setLoginMessage($('campus-email-message'), error.message));
+    }
     if (event.target.id === 'global-search-form') { event.preventDefault(); state.search.keyword = $('global-search').value.trim(); if (!state.search.keyword) return; state.route = 'search'; runSearch(); }
     if (event.target.id === 'directory-form') { event.preventDefault(); state.directoryKeyword = $('directory-keyword').value.trim(); api(`/api/directory?keyword=${encodeURIComponent(state.directoryKeyword)}`).then(data => { state.directoryPeople = asArray(data).map(person => ({ id: person.id, name: person['姓名'], role: person['角色'], department: person['学院'], email: person['邮箱'], year: person['年级'], tags: person.tags || [] })); render(); }).catch(error => showToast(error.message, 'error')); }
-    if (event.target.id === 'preferences-form') { event.preventDefault(); const form = new FormData(event.target); const sections = form.getAll('sections'); const interests = String(form.get('interests') || '').split(',').map(value => value.trim()).filter(Boolean); api('/api/profile/preferences', { method: 'PATCH', body: JSON.stringify({ sections, interests, show_context_rail: form.get('show_context_rail') === 'on', content_language: form.get('content_language') }) }).then(result => { state.preferences = result; state.posts = rankPosts(state.posts); showToast('首页偏好已保存'); routeTo('feed'); renderRails(); }).catch(error => showToast(error.message, 'error')); }
+    if (event.target.id === 'preferences-form') { event.preventDefault(); const form = new FormData(event.target); const sections = form.getAll('sections'); const interests = String(form.get('interests') || '').split(',').map(value => value.trim()).filter(Boolean); const theme = String(form.get('theme') || 'system'); api('/api/profile/preferences', { method: 'PATCH', body: JSON.stringify({ sections, interests, show_context_rail: form.get('show_context_rail') === 'on', content_language: form.get('content_language'), theme }) }).then(result => { state.preferences = result; applyTheme(result.theme); state.posts = rankPosts(state.posts); showToast('首页偏好已保存'); routeTo('feed'); renderRails(); }).catch(error => showToast(error.message, 'error')); }
     if (event.target.matches('[data-group-message-form]')) { event.preventDefault(); const form = new FormData(event.target); const groupId = event.target.dataset.groupMessageForm; api(`/api/groups/${encodeURIComponent(groupId)}/messages?content=${encodeURIComponent(form.get('content'))}`, { method: 'POST' }).then(async () => { const data = await api('/api/groups'); state.groups = asArray(data, 'groups'); showToast('项目群消息已发送'); render(); }).catch(error => showToast(error.message, 'error')); }
     if (event.target.matches('[data-collection-form]')) {
       event.preventDefault(); const id = event.target.dataset.collectionForm; const tag = normalizeTag(new FormData(event.target).get('tag'));
@@ -1406,6 +1563,28 @@ function bindEvents() {
       api('/api/opportunities/apply', { method: 'POST', body: JSON.stringify({ opportunity_id: formElement.dataset.opportunityApplyForm, message: String(new FormData(formElement).get('message') || '').trim(), skills: state.opportunitySkills }) })
         .then(async result => { const data = await api('/api/opportunities'); state.opportunities = asArray(data, 'opportunities'); state.activeOpportunityApply = ''; showToast(result.message || '申请已提交，等待招募发起人处理'); render(); })
         .catch(error => { submitButton.disabled = false; submitButton.innerHTML = '<i data-lucide="send"></i>重试申请'; refreshIcons(); showToast(error.message, 'error'); });
+    }
+    if (event.target.id === 'opportunity-create-form') {
+      event.preventDefault();
+      const form = event.target;
+      const values = new FormData(form);
+      const split = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+      const submitButton = form.querySelector('button[type="submit"]');
+      submitButton.disabled = true;
+      api('/api/opportunities', { method: 'POST', body: JSON.stringify({
+        title: String(values.get('title') || '').trim(),
+        kind: values.get('kind'),
+        description: String(values.get('description') || '').trim(),
+        skills: split(values.get('skills')),
+        deadline: String(values.get('deadline') || '').trim(),
+        capacity: Number(values.get('capacity') || 1),
+      }) }).then(async result => {
+        const data = await api('/api/opportunities');
+        state.opportunities = asArray(data, 'opportunities');
+        state.opportunitySkills = asArray(data, 'skills');
+        showToast(result.message || '组队招募已发布');
+        render();
+      }).catch(error => { submitButton.disabled = false; showToast(error.message, 'error'); });
     }
     if (event.target.id === 'search-page-form') { event.preventDefault(); state.search.keyword = $('search-keyword').value.trim(); runSearch(); }
     if (event.target.id === 'resource-filter-form') { event.preventDefault(); state.resourceFilters.keyword = $('resource-keyword').value.trim(); render(); }
@@ -1446,6 +1625,7 @@ function bindEvents() {
 }
 
 initLoginExperience();
+initProfileOnboardingGuard();
 bindEvents();
 render();
 loadInitialData();
