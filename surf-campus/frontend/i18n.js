@@ -394,11 +394,43 @@ function toggleLang() {
   }
 }
 
+/* ── Original-value tracking: records pre-translation values so switching
+   back to Chinese can restore static HTML (sidebar, topbar, login page...) ── */
+var I18N_ORIG_NODES = []; // [{ n: textNode, orig: '原文' }]
+
+function i18nRecordText(n) {
+  for (var i = 0; i < I18N_ORIG_NODES.length; i++) {
+    if (I18N_ORIG_NODES[i].n === n) return; // already recorded
+  }
+  I18N_ORIG_NODES.push({ n: n, orig: n.nodeValue });
+}
+
+function i18nRestoreZh() {
+  // 1. restore recorded text nodes (sidebar / topbar / login static HTML)
+  I18N_ORIG_NODES.forEach(function (rec) {
+    try { if (rec.n) rec.n.nodeValue = rec.orig; } catch (e) {}
+  });
+  I18N_ORIG_NODES = [];
+  // 2. restore recorded attributes
+  document.querySelectorAll('[data-i18n-orig-placeholder]').forEach(function (el) {
+    el.setAttribute('placeholder', el.getAttribute('data-i18n-orig-placeholder'));
+    el.removeAttribute('data-i18n-orig-placeholder');
+  });
+  document.querySelectorAll('[data-i18n-orig-aria]').forEach(function (el) {
+    el.setAttribute('aria-label', el.getAttribute('data-i18n-orig-aria'));
+    el.removeAttribute('data-i18n-orig-aria');
+  });
+  document.querySelectorAll('[data-i18n-orig-title]').forEach(function (el) {
+    el.setAttribute('title', el.getAttribute('data-i18n-orig-title'));
+    el.removeAttribute('data-i18n-orig-title');
+  });
+}
+
 /* ── Apply translations to DOM (static + dynamic) ── */
 function applyI18N() {
   if (SURF_LANG === 'zh') {
-    // Restore Chinese: reload to original state is complex, so we re-render
-    // The render functions output Chinese by default, so just re-render
+    // Restore Chinese: re-render handles dynamic views; restore static chrome here
+    i18nRestoreZh();
     return;
   }
 
@@ -414,6 +446,9 @@ function applyI18N() {
   document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
     var key = el.getAttribute('data-i18n-placeholder');
     if (SURF_I18N[key]) {
+      if (!el.hasAttribute('data-i18n-orig-placeholder')) {
+        el.setAttribute('data-i18n-orig-placeholder', el.getAttribute('placeholder') || key);
+      }
       el.setAttribute('placeholder', SURF_I18N[key]);
     }
   });
@@ -472,6 +507,7 @@ function translateTextNodes(root) {
 
   nodes.forEach(function(n) {
     var text = n.nodeValue;
+    i18nRecordText(n);
     var translated = translateString(text);
     if (translated !== text) n.nodeValue = translated;
   });
@@ -480,6 +516,9 @@ function translateTextNodes(root) {
   document.querySelectorAll('[placeholder]').forEach(function(el) {
     var ph = el.getAttribute('placeholder');
     if (ph && /[\u4e00-\u9fff]/.test(ph)) {
+      if (!el.hasAttribute('data-i18n-orig-placeholder')) {
+        el.setAttribute('data-i18n-orig-placeholder', ph);
+      }
       var t = translateString(ph);
       if (t !== ph) el.setAttribute('placeholder', t);
     }
@@ -489,6 +528,9 @@ function translateTextNodes(root) {
   document.querySelectorAll('[aria-label]').forEach(function(el) {
     var al = el.getAttribute('aria-label');
     if (al && /[\u4e00-\u9fff]/.test(al)) {
+      if (!el.hasAttribute('data-i18n-orig-aria')) {
+        el.setAttribute('data-i18n-orig-aria', al);
+      }
       var t = translateString(al);
       if (t !== al) el.setAttribute('aria-label', t);
     }
@@ -498,6 +540,9 @@ function translateTextNodes(root) {
   document.querySelectorAll('[title]').forEach(function(el) {
     var t0 = el.getAttribute('title');
     if (t0 && /[\u4e00-\u9fff]/.test(t0)) {
+      if (!el.hasAttribute('data-i18n-orig-title')) {
+        el.setAttribute('data-i18n-orig-title', t0);
+      }
       var t = translateString(t0);
       if (t !== t0) el.setAttribute('title', t);
     }
