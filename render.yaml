@@ -14,3 +14,15 @@ services:
         value: "true"
       - key: DEEPSEEK_API_KEY
         sync: false
+      # ── Real SMS via Tencent Cloud (fill in Render dashboard to enable) ──
+      # Left empty = mock mode (code 123456 still works for demos)
+      - key: TENCENT_SMS_SECRET_ID
+        sync: false
+      - key: TENCENT_SMS_SECRET_KEY
+        sync: false
+      - key: TENCENT_SMS_SDK_APP_ID
+        sync: false
+      - key: TENCENT_SMS_SIGN_NAME
+        sync: false
+      - key: TENCENT_SMS_TEMPLATE_ID
+        sync: false

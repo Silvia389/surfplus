@@ -209,7 +209,37 @@ def verification_target(channel, target):
     return n
 
 def deliver_verification_code(channel, target, code):
-    # Mock mode — always returns mock in dev
+    """Send the code via a real provider when credentials are configured,
+    otherwise fall back to mock mode (code shown in the API response)."""
+    if channel in {"phone", "sms"}:
+        secret_id = os.environ.get("TENCENT_SMS_SECRET_ID", "").strip()
+        secret_key = os.environ.get("TENCENT_SMS_SECRET_KEY", "").strip()
+        sdk_app_id = os.environ.get("TENCENT_SMS_SDK_APP_ID", "").strip()
+        sign_name = os.environ.get("TENCENT_SMS_SIGN_NAME", "").strip()
+        template_id = os.environ.get("TENCENT_SMS_TEMPLATE_ID", "").strip()
+        if secret_id and secret_key and sdk_app_id and sign_name and template_id:
+            try:
+                from tencentcloud.common import credential
+                from tencentcloud.sms.v20210111 import sms_client, models
+
+                cred = credential.Credential(secret_id, secret_key)
+                client = sms_client.SmsClient(cred, "ap-guangzhou")
+                req = models.SendSmsRequest()
+                req.SmsSdkAppId = sdk_app_id
+                req.SignName = sign_name
+                req.PhoneNumberSet = ["+86" + target]
+                req.TemplateId = template_id
+                req.TemplateParamSet = [code]
+                resp = client.SendSms(req)
+                status = resp.SendStatusSet[0].Code if resp.SendStatusSet else "Unknown"
+                if status != "Ok":
+                    raise RuntimeError(f"SMS provider error: {status}")
+                return "tencentcloud"
+            except ImportError:
+                print("[sms] tencentcloud SDK not installed, falling back to mock")
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"短信发送失败: {str(e)[:120]}")
+    # Mock mode — no real credentials configured
     return "mock"
 
 def issue_verification_code(channel, target):
@@ -222,11 +252,23 @@ def issue_verification_code(channel, target):
         prev = VERIFICATION_CODES.get(key)
         if prev and now - prev["sent_at"] < cooldown:
             raise HTTPException(status_code=429, detail=f"请 {cooldown - int(now - prev['sent_at'])} 秒后重新获取验证码")
-    code = os.environ.get("SURF_MOCK_SMS_CODE" if channel == "sms" else "SURF_MOCK_EMAIL_CODE", "123456")
+    real_sms = bool(
+        channel in {"phone", "sms"}
+        and os.environ.get("TENCENT_SMS_SECRET_ID", "").strip()
+        and os.environ.get("TENCENT_SMS_SECRET_KEY", "").strip()
+        and os.environ.get("TENCENT_SMS_SDK_APP_ID", "").strip()
+        and os.environ.get("TENCENT_SMS_SIGN_NAME", "").strip()
+        and os.environ.get("TENCENT_SMS_TEMPLATE_ID", "").strip()
+    )
+    if real_sms:
+        code = f"{secrets.randbelow(900000) + 100000}"
+    else:
+        code = os.environ.get("SURF_MOCK_SMS_CODE" if channel == "sms" else "SURF_MOCK_EMAIL_CODE", "123456")
     provider = deliver_verification_code(channel, normalized, code)
     with VERIFICATION_CODES_LOCK:
         VERIFICATION_CODES[key] = {"code": code, "provider": provider, "expires_at": now + ttl, "sent_at": now}
-    return {"sent": True, "channel": channel, "masked_target": f"{normalized[:3]}****{normalized[-4:]}" if channel == "sms" else f"{normalized[:2]}***@{normalized.split('@')[-1]}", "provider": provider, "expires_in": ttl, "cooldown": cooldown, "debug_code": code if os.environ.get("SURF_AUTH_DEBUG_CODES", "true").lower() == "true" else None}
+    show_debug = (not real_sms) and os.environ.get("SURF_AUTH_DEBUG_CODES", "true").lower() == "true"
+    return {"sent": True, "channel": channel, "masked_target": f"{normalized[:3]}****{normalized[-4:]}" if channel == "sms" else f"{normalized[:2]}***@{normalized.split('@')[-1]}", "provider": provider, "expires_in": ttl, "cooldown": cooldown, "debug_code": code if show_debug else None}
 
 def consume_verification_code(channel, target, code):
     normalized = verification_target(channel, target)
