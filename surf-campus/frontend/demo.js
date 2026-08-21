@@ -647,13 +647,18 @@ function saveEditProfile(){
   var bio=$('edit-bio')?.value.trim(),email=$('edit-email')?.value.trim(),gh=$('edit-github')?.value.trim(),blog=$('edit-blog')?.value.trim();
   if(bio)ef.bio=bio;if(email)ef.email=email;ef.links.github=gh;ef.links.blog=blog;
   ME_PROFILE.bio=ef.bio;ME_PROFILE.email=ef.email;ME_PROFILE.links={github:ef.links.github,blog:ef.links.blog};
-  /* 同步进持久化资料（服务端 + 本地备份） */
-  if(bio){
-    state.profile.bio=bio;
-    state.profile.user_id=state.authSession&&state.authSession.user_id||state.profile.user_id||'';
-    saveProfileBackup(state.profile);
-    persistProfileToServer(state.profile);
-  }
+  /* 同步进持久化资料（服务端 + 本地备份），任何字段修改都触发保存 */
+  state.profile.bio=ef.bio;
+  state.profile.email=ef.email;
+  state.profile.github=ef.links.github;
+  state.profile.blog=ef.links.blog;
+  state.profile.username=state.profile.username||ME_PROFILE.name;
+  state.profile.avatar=state.profile.avatar||ME_PROFILE.avatarKey||'sun';
+  state.profile.birthday=state.profile.birthday||'';
+  state.profile.profile_complete=true;
+  state.profile.user_id=(state.authSession&&state.authSession.user_id)||state.profile.user_id||'';
+  saveProfileBackup(state.profile);
+  persistProfileToServer(state.profile);
   var o=document.getElementById('edit-profile-overlay');if(o)o.remove();
   toast('个人资料已更新');render()
 }
@@ -2582,14 +2587,25 @@ function applyUserProfile(p) {
     state.authSession.name = p.username;
     ME_PROFILE.name = p.username;
   }
-  if (typeof p.bio === 'string' && p.bio) ME_PROFILE.bio = p.bio;
-  if (state.editProfileForm && typeof p.bio === 'string' && p.bio) state.editProfileForm.bio = p.bio;
+  if (typeof p.bio === 'string' && (p.bio || p.profile_complete)) ME_PROFILE.bio = p.bio;
+  if (typeof p.email === 'string') ME_PROFILE.email = p.email || '';
+  if (typeof p.github === 'string' || typeof p.blog === 'string') {
+    ME_PROFILE.links = {
+      github: typeof p.github === 'string' ? p.github : (ME_PROFILE.links && ME_PROFILE.links.github) || '',
+      blog: typeof p.blog === 'string' ? p.blog : (ME_PROFILE.links && ME_PROFILE.links.blog) || ''
+    };
+  }
+  if (state.editProfileForm) {
+    if (typeof p.bio === 'string' && p.bio) state.editProfileForm.bio = p.bio;
+    if (typeof p.email === 'string' && p.email) state.editProfileForm.email = p.email;
+    if (ME_PROFILE.links) state.editProfileForm.links = { github: ME_PROFILE.links.github || '', blog: ME_PROFILE.links.blog || '' };
+  }
   ME_PROFILE.birthday = p.birthday || '';
   ME_PROFILE.avatarKey = p.avatar || 'sun';
   updateIdentityChrome();
 }
 function persistProfileToServer(p) {
-  return apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ username: p.username, bio: p.bio || '', birthday: p.birthday || '', avatar: p.avatar || 'sun' }) }).catch(function () { return null; });
+  return apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ username: p.username, bio: p.bio || '', birthday: p.birthday || '', avatar: p.avatar || 'sun', email: typeof p.email === 'string' ? p.email : '', github: typeof p.github === 'string' ? p.github : '', blog: typeof p.blog === 'string' ? p.blog : '' }) }).catch(function () { return null; });
 }
 function restoreProfileIfReset() {
   var uid = state.authSession && state.authSession.user_id;

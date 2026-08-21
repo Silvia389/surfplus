@@ -2007,6 +2007,46 @@ body.auth-pending .app-shell, body.auth-pending .mobile-nav { display: none; }
 :root[data-theme="dark"] .global-search{background:rgba(26,33,29,.9)}
 :root[data-theme="dark"] .icon-button{background:rgba(26,33,29,.9)}
 
+/* ── 深色模式：右侧实时滚动栏（热点/日历/精选海报，柔和黑底白字白框） ── */
+:root[data-theme="dark"] .hot-module{background:#1a211d;border-color:#313c35;box-shadow:none}
+:root[data-theme="dark"] .hot-head-title{color:#edf3ee}
+:root[data-theme="dark"] .hot-head-title .lucide,:root[data-theme="dark"] .hot-head-title svg{color:#9A8FA8}
+:root[data-theme="dark"] .hot-head-more{color:#89988e}
+:root[data-theme="dark"] .hot-head-more:hover{color:#edf3ee;background:#242e28}
+:root[data-theme="dark"] .hot-filter-btn{color:#89988e}
+:root[data-theme="dark"] .hot-filter-btn:hover{color:#edf3ee;background:#242e28}
+:root[data-theme="dark"] .hot-filter-btn.active{color:#edf3ee;background:#242e28}
+:root[data-theme="dark"] .hot-item{border-bottom-color:#26302a}
+:root[data-theme="dark"] .hot-item:hover{background:#202924}
+:root[data-theme="dark"] .hot-title{color:#dfe9e2}
+:root[data-theme="dark"] .hot-item-time{color:#6f7d74}
+:root[data-theme="dark"] .hot-empty{color:#89988e}
+:root[data-theme="dark"] .hot-skeleton-block{background:#232d27}
+:root[data-theme="dark"] .cal-module{background:#161d19;border-color:#2c3630}
+:root[data-theme="dark"] .cal-head{color:#edf3ee}
+:root[data-theme="dark"] .cal-head .lucide,:root[data-theme="dark"] .cal-head svg{color:#9A8FA8}
+:root[data-theme="dark"] .cal-divider{border-top-color:#2c3630}
+:root[data-theme="dark"] .cal-evt{color:#dfe9e2}
+:root[data-theme="dark"] .cal-evt:hover{color:#edf3ee}
+:root[data-theme="dark"] .cal-evt-time{color:#89988e}
+:root[data-theme="dark"] .cal-empty{color:#89988e}
+:root[data-theme="dark"] .cal-empty:hover{color:#bdc9c0}
+:root[data-theme="dark"] .cal-more{color:#89988e}
+:root[data-theme="dark"] .cal-more:hover{color:#bdc9c0}
+:root[data-theme="dark"] .cal-skeleton-block{background:#232d27}
+:root[data-theme="dark"] .poster-module{background:#161d19;border-color:#2c3630}
+:root[data-theme="dark"] .poster-head-title{color:#edf3ee}
+:root[data-theme="dark"] .poster-head-title i,:root[data-theme="dark"] .poster-head-title svg{color:#9A8FA8}
+:root[data-theme="dark"] .poster-viewport{background:#1a211d}
+:root[data-theme="dark"] .poster-card{background:#1f2823}
+:root[data-theme="dark"] .poster-title{color:#e6eee8}
+:root[data-theme="dark"] .poster-sub{color:#89988e}
+:root[data-theme="dark"] .poster-arrow{background:rgba(26,33,29,.92);color:#bdc9c0}
+:root[data-theme="dark"] .poster-arrow:hover{background:#242e28;color:#edf3ee}
+:root[data-theme="dark"] .poster-dot{background:#3a453d}
+:root[data-theme="dark"] .poster-dot.active{background:#9A8FA8}
+:root[data-theme="dark"] .poster-skeleton{background:#232d27}
+
 /* ── 积分规则弹窗：金色高级风格 ── */
 .points-intro-modal{width:min(430px,95vw);border:1px solid #e3c987;border-radius:16px;background:linear-gradient(170deg,#fffdf6 0%,#faf4e3 100%);box-shadow:0 24px 64px rgba(84,63,17,.22),0 0 0 4px rgba(214,178,94,.12);overflow:hidden}
 :root[data-theme="dark"] .points-intro-modal{background:linear-gradient(170deg,#221e14 0%,#1c1a11 100%);border-color:#5c4a1e;box-shadow:0 24px 64px rgba(0,0,0,.5),0 0 0 4px rgba(214,178,94,.1)}

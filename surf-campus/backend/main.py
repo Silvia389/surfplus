@@ -159,7 +159,7 @@ def user_data():
     return data
 
 def profile_defaults(user_id, name="校园成员", role="student"):
-    return {"id": user_id, "name": name or "校园成员", "username": name or "校园成员", "bio": "", "birthday": "", "avatar": "sun", "profile_complete": False, "role": role, "department": "", "year": "", "tags": []}
+    return {"id": user_id, "name": name or "校园成员", "username": name or "校园成员", "bio": "", "birthday": "", "avatar": "sun", "profile_complete": False, "role": role, "department": "", "year": "", "tags": [], "email": "", "github": "", "blog": ""}
 
 def profile_for_user(user_id, name="校园成员"):
     data = user_data()
@@ -368,6 +368,9 @@ class ProfileUpdate(BaseModel):
     bio: str = Field(default="", max_length=160)
     birthday: str = Field(default="", max_length=10)
     avatar: str = "sun"
+    email: str | None = Field(default=None, max_length=120)
+    github: str | None = Field(default=None, max_length=160)
+    blog: str | None = Field(default=None, max_length=160)
 
 class PreferenceUpdate(BaseModel):
     sections: list[str] = Field(default_factory=list, max_length=4)
@@ -1090,6 +1093,12 @@ def update_profile(req: ProfileUpdate, request: Request):
         profile = profile_defaults(session_user_id(session), req.username)
         data["users"].append(profile)
     profile.update({"name": req.username, "username": req.username, "bio": req.bio, "birthday": req.birthday, "avatar": req.avatar, "profile_complete": True})
+    if req.email is not None:
+        profile["email"] = valid_email(req.email) and req.email or ""
+    if req.github is not None:
+        profile["github"] = req.github
+    if req.blog is not None:
+        profile["blog"] = req.blog
     write_data("users.json", data)
     save_auth_session({**session, "name": req.username})
     return public_profile(session_user_id(session), req.username)
