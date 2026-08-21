@@ -1,15 +1,10 @@
 """信息检索工具 — 搜索课程、教授、活动、资源、师生"""
 import json
 from typing import Optional
-from . import _load_json, DATA_DIR
+from . import _load_json
 
 
-def search_info(
-    category: str,
-    keyword: Optional[str] = None,
-    filters: Optional[dict] = None
-) -> str:
-    """查询校内各类信息"""
+def search_info(category: str, keyword: Optional[str] = None, filters: Optional[dict] = None) -> str:
     if category == "course":
         return _search_courses(keyword, filters)
     elif category == "professor":
@@ -20,8 +15,6 @@ def search_info(
         return _search_resources(keyword)
     elif category == "directory":
         return _search_directory(keyword)
-    elif category == "club":
-        return _search_clubs(keyword)
     elif category == "post":
         return _search_posts(keyword)
     else:
@@ -35,31 +28,20 @@ def _search_courses(keyword, filters=None):
     for c in courses:
         if keyword and keyword.lower() not in c.get("name", "").lower() and keyword.lower() not in c.get("code", "").lower():
             continue
-        results.append({
-            "课程": c["name"],
-            "代码": c["code"],
-            "时间": c.get("schedule", ""),
-            "地点": c.get("location", ""),
-            "教授": c.get("professor", ""),
-        })
+        results.append({"name": c["name"], "code": c["code"], "instructor": c.get("instructor", ""), "credits": c.get("credits", 0)})
     if not results:
         return json.dumps({"message": "没有找到匹配的课程"})
     return json.dumps(results[:5], ensure_ascii=False, indent=2)
 
 
 def _search_professors(keyword):
-    data = _load_json("users.json")
-    profs = [u for u in data.get("users", []) if u.get("role") == "professor"]
+    data = _load_json("professors.json")
+    profs = data.get("professors", [])
     results = []
     for p in profs:
-        if keyword and keyword.lower() not in p.get("name", "").lower():
+        if keyword and keyword.lower() not in p.get("name", "").lower() and keyword.lower() not in p.get("research", "").lower():
             continue
-        results.append({
-            "姓名": p["name"],
-            "学院": p.get("department", ""),
-            "研究方向": p.get("research", ""),
-            "Office Hour": p.get("office_hour", ""),
-        })
+        results.append({"name": p["name"], "faculty": p.get("faculty", ""), "research": p.get("research", "")})
     if not results:
         return json.dumps({"message": "没有找到匹配的教授"})
     return json.dumps(results[:5], ensure_ascii=False, indent=2)
@@ -72,12 +54,7 @@ def _search_events(keyword):
     for e in events:
         if keyword and keyword.lower() not in e.get("title", "").lower():
             continue
-        results.append({
-            "活动": e["title"],
-            "时间": e.get("time", ""),
-            "地点": e.get("location", ""),
-            "组织": e.get("organizer", ""),
-        })
+        results.append({"title": e["title"], "time": e.get("time", ""), "location": e.get("location", ""), "organizer": e.get("organizer", "")})
     if not results:
         return json.dumps({"message": "没有找到匹配的活动"})
     return json.dumps(results[:5], ensure_ascii=False, indent=2)
@@ -90,12 +67,7 @@ def _search_resources(keyword):
     for r in resources:
         if keyword and keyword.lower() not in r.get("name", "").lower() and keyword.lower() not in r.get("course", "").lower():
             continue
-        results.append({
-            "名称": r["name"],
-            "课程": r.get("course", ""),
-            "类型": r.get("type", ""),
-            "上传者": r.get("uploader", ""),
-        })
+        results.append({"name": r["name"], "course": r.get("course", ""), "type": r.get("type", ""), "uploader": r.get("uploader", "")})
     if not results:
         return json.dumps({"message": "没有找到匹配的资料"})
     return json.dumps(results[:5], ensure_ascii=False, indent=2)
@@ -108,34 +80,9 @@ def _search_directory(keyword):
     for u in users:
         if keyword and keyword.lower() not in u.get("name", "").lower() and keyword.lower() not in u.get("department", "").lower():
             continue
-        results.append({
-            "id": u.get("id", ""),
-            "姓名": u["name"],
-            "角色": u.get("role", ""),
-            "学院": u.get("department", ""),
-            "邮箱": u.get("email", ""),
-            "年级": u.get("year", ""),
-            "tags": u.get("tags", []),
-        })
+        results.append({"id": u.get("id", ""), "name": u["name"], "role": u.get("role", ""), "department": u.get("department", ""), "tags": u.get("tags", [])})
     if not results:
         return json.dumps({"message": "没有找到匹配的师生"})
-    return json.dumps(results[:5], ensure_ascii=False, indent=2)
-
-
-def _search_clubs(keyword):
-    data = _load_json("events.json")
-    clubs = data.get("clubs", [])
-    results = []
-    for c in clubs:
-        if keyword and keyword.lower() not in c.get("name", "").lower():
-            continue
-        results.append({
-            "社团": c["name"],
-            "描述": c.get("description", ""),
-            "成员数": c.get("members", 0),
-        })
-    if not results:
-        return json.dumps({"message": "没有找到匹配的社团"})
     return json.dumps(results[:5], ensure_ascii=False, indent=2)
 
 
@@ -144,38 +91,24 @@ def _search_posts(keyword):
     posts = data.get("posts", [])
     results = []
     for p in posts:
-        if keyword and keyword.lower() not in p.get("content", "").lower():
+        if keyword and keyword.lower() not in p.get("content", "").lower() and keyword.lower() not in p.get("title", "").lower():
             continue
-        results.append({
-            "内容": p["content"][:80] + ("..." if len(p["content"]) > 80 else ""),
-            "板块": p.get("section", ""),
-            "时间": p.get("time", ""),
-            "点赞": p.get("likes", 0),
-        })
+        results.append({"title": p.get("title", ""), "content": p.get("content", "")[:80], "section": p.get("section", ""), "likes": p.get("likes", 0)})
     if not results:
         return json.dumps({"message": "没有找到匹配的帖子"})
     return json.dumps(results[:5], ensure_ascii=False, indent=2)
 
 
-# ─── 工具定义（Function Calling Schema）───
-
 SEARCH_TOOL = {
     "type": "function",
     "function": {
         "name": "search_info",
-        "description": "查询校园各类信息：课程、教授、活动、学术资源、师生通讯录、社团、帖子",
+        "description": "查询校园各类信息：课程、教授、活动、学术资源、师生通讯录、帖子",
         "parameters": {
             "type": "object",
             "properties": {
-                "category": {
-                    "type": "string",
-                    "description": "查询类别",
-                    "enum": ["course", "professor", "event", "resource", "directory", "club", "post"],
-                },
-                "keyword": {
-                    "type": "string",
-                    "description": "搜索关键词（可选）",
-                },
+                "category": {"type": "string", "description": "查询类别", "enum": ["course", "professor", "event", "resource", "directory", "post"]},
+                "keyword": {"type": "string", "description": "搜索关键词（可选）"},
             },
             "required": ["category"],
         },

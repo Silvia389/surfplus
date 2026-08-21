@@ -1,23 +1,13 @@
-"""XJTLU Virtual Campus — 后端 API"""
-import base64
+"""XJTLU Virtual Campus — 后端 API（参考原仓库 + 新前端适配）"""
+import base64, hashlib, json, logging, os, re, secrets, smtplib, threading, time, uuid
 from collections import deque
 from datetime import date
 from email.message import EmailMessage
-import hashlib
-import secrets
-import json
-import logging
-import os
-import re
-import smtplib
-import threading
-import time
-import uuid
+from pathlib import Path
+from typing import Any, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request as URLRequest, urlopen
-from pathlib import Path
-from typing import Any, Optional
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,24 +17,19 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import uvicorn
 
-app = FastAPI(title="XJTLU Virtual Campus", version="0.1.0")
+app = FastAPI(title="XJTLU Virtual Campus", version="0.2.0")
 
 BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in os.sys.path:
     os.sys.path.insert(0, str(BASE_DIR))
 load_dotenv(BASE_DIR / ".env")
-DATA_DIR = Path(os.environ.get("SURF_DATA_DIR", str(BASE_DIR / "data"))).resolve()
-UPLOAD_DIR = Path(os.environ.get("SURF_UPLOAD_DIR", str(BASE_DIR / "uploads"))).resolve()
+DATA_DIR = Path(os.environ.get("SURF_DATA_DIR") or str(BASE_DIR / "data")).resolve()
+UPLOAD_DIR = Path(os.environ.get("SURF_UPLOAD_DIR") or str(BASE_DIR / "uploads")).resolve()
 UPLOAD_DIR.mkdir(exist_ok=True)
-RESOURCE_FILE_DIR = Path(os.environ.get("SURF_RESOURCE_FILE_DIR", str(BASE_DIR / "resource_files"))).resolve()
+RESOURCE_FILE_DIR = Path(os.environ.get("SURF_RESOURCE_FILE_DIR") or str(BASE_DIR / "resource_files")).resolve()
 RESOURCE_FILE_DIR.mkdir(exist_ok=True)
 
-SECTION_LABELS = {
-    "academic": "学术",
-    "campus-life": "校园生活",
-    "opportunities": "活动与机会",
-    "teams": "组队与项目",
-}
+SECTION_LABELS = {"academic": "学术", "campus-life": "校园生活", "opportunities": "活动与机会", "teams": "组队与项目"}
 AVATAR_OPTIONS = {"sun", "wave", "leaf", "star", "spark", "moon"}
 SCHOOL_EMAIL_SUFFIXES = ("@student.xjtlu.edu.cn", "@xjtlu.edu.cn")
 ADMIN_ROLES = {"platform_admin", "moderator", "teacher", "organizer"}
@@ -58,445 +43,192 @@ VERIFICATION_CODES: dict[str, dict[str, Any]] = {}
 VERIFICATION_CODES_LOCK = threading.Lock()
 
 
-def read_data(filename: str, fallback: dict) -> dict:
+def read_data(filename, fallback=None):
     path = DATA_DIR / filename
     if not path.exists():
-        return fallback
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+        return fallback if fallback is not None else {}
+    with path.open("r", encoding="utf-8") as h:
+        return json.load(h)
 
-
-def write_data(filename: str, data: dict) -> None:
+def write_data(filename, data):
     path = DATA_DIR / filename
-    temporary = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, ensure_ascii=False, indent=2)
-    temporary.replace(path)
+    tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
+    with tmp.open("w", encoding="utf-8") as h:
+        json.dump(data, h, ensure_ascii=False, indent=2)
+    tmp.replace(path)
 
-
-def audit(actor_role: str, action: str, target_type: str, target_id: str, detail: str = "") -> None:
+def audit(actor_role, action, target_type, target_id, detail=""):
     data = read_data("audit.json", {"records": []})
-    data["records"].insert(0, {
-        "id": f"audit_{uuid.uuid4().hex[:10]}",
-        "time": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "actor_role": actor_role,
-        "action": action,
-        "target_type": target_type,
-        "target_id": target_id,
-        "detail": detail,
-    })
+    data["records"].insert(0, {"id": f"audit_{uuid.uuid4().hex[:10]}", "time": time.strftime("%Y-%m-%d %H:%M:%S"), "actor_role": actor_role, "action": action, "target_type": target_type, "target_id": target_id, "detail": detail})
     write_data("audit.json", data)
-
 
 def current_admin_role(x_admin_role: str = Header(default="student")) -> str:
     if x_admin_role not in ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="当前角色无权访问管理端")
     return x_admin_role
 
-
 def moderation_role(role: str = Depends(current_admin_role)) -> str:
     if role not in WRITE_ROLES:
         raise HTTPException(status_code=403, detail="当前角色只有查看权限")
     return role
-
 
 def learning_write_role(role: str = Depends(current_admin_role)) -> str:
     if role not in {"platform_admin", "teacher"}:
         raise HTTPException(status_code=403, detail="当前角色无权维护课程内容")
     return role
 
-
 def event_write_role(role: str = Depends(current_admin_role)) -> str:
     if role not in {"platform_admin", "organizer"}:
         raise HTTPException(status_code=403, detail="当前角色无权维护活动")
     return role
-
 
 def opportunity_write_role(role: str = Depends(current_admin_role)) -> str:
     if role not in {"platform_admin", "organizer", "teacher"}:
         raise HTTPException(status_code=403, detail="当前角色无权维护项目招募")
     return role
 
+DEV_AUTH_SESSION = {"phone_authenticated": True, "email_authenticated": True, "phone_masked": "191****7738", "campus_verified": True, "user_id": "u001", "name": "张三", "campus_account": "student001@student.xjtlu.edu.cn", "email": "zhang.san@xjtlu.edu.cn"}
 
-def current_auth_session() -> dict:
-    return read_data("auth.json", {}).get("session", {
-        "phone_authenticated": False,
-        "email_authenticated": False,
-        "phone_masked": "",
-        "campus_verified": False,
-        "user_id": "",
-        "name": "",
-        "campus_account": "",
-    })
-
-
-def auth_data() -> dict:
-    data = read_data("auth.json", {})
-    data.setdefault("session", current_auth_session())
-    data.setdefault("accounts", [])
-    return data
-
-
-def user_data() -> dict:
-    """Public profile records live separately from private auth credentials."""
-    data = read_data("users.json", {"users": []})
-    data.setdefault("users", [])
-    return data
-
-
-def profile_defaults(user_id: str, name: str = "校园成员", role: str = "student") -> dict:
-    return {
-        "id": user_id,
-        "name": name or "校园成员",
-        "username": name or "校园成员",
-        "bio": "",
-        "birthday": "",
-        "avatar": "sun",
-        "profile_complete": False,
-        "role": role,
-        "department": "",
-        "year": "",
-        "tags": [],
-    }
-
-
-def profile_for_user(user_id: str, name: str = "校园成员") -> dict:
-    data = user_data()
-    profile = next((item for item in data["users"] if item.get("id") == user_id), None)
-    if profile is None:
-        profile = profile_defaults(user_id, name)
-        data["users"].append(profile)
-        write_data("users.json", data)
-    profile.setdefault("username", profile.get("name") or name or "校园成员")
-    profile.setdefault("bio", "")
-    profile.setdefault("birthday", "")
-    profile.setdefault("avatar", "sun")
-    profile.setdefault("profile_complete", bool(profile.get("username") and profile.get("avatar") and profile.get("id") == "u001"))
-    return profile
-
-
-def public_profile(user_id: str, name: str = "校园成员") -> dict:
-    profile = profile_for_user(user_id, name)
-    return {
-        "id": profile.get("id", user_id),
-        "username": profile.get("username") or profile.get("name") or name or "校园成员",
-        "name": profile.get("name") or profile.get("username") or name or "校园成员",
-        "bio": profile.get("bio", ""),
-        "birthday": profile.get("birthday", ""),
-        "avatar": profile.get("avatar", "sun"),
-        "profile_complete": bool(profile.get("profile_complete")),
-        "role": profile.get("role", "student"),
-        "department": profile.get("department", ""),
-        "year": profile.get("year", ""),
-        "tags": profile.get("tags", []),
-        "email": profile.get("email", ""),
-        "phone_masked": profile.get("phone_masked", ""),
-    }
-
-
-def auth_response(session: dict, request: Optional[Request] = None) -> dict:
-    identity_level = "campus" if session.get("campus_verified") else ("phone" if session.get("phone_authenticated") else ("email" if session.get("email_authenticated") else "guest"))
-    profile = public_profile(session_user_id(session), session.get("name", "校园成员")) if session.get("user_id") else None
-    return {
-        **session,
-        "can_publish": bool(session.get("campus_verified")),
-        "identity_level": identity_level,
-        "profile": profile,
-        "profile_complete": bool(profile and profile.get("profile_complete")),
-        "needs_onboarding": bool(profile and not profile.get("profile_complete")),
-        "dev_bypass": dev_auth_bypass_enabled(request) if request else False,
-    }
-
-
-def persist_user_profile(*, user_id: str, name: str, email: str = "", phone: str = "", role: str = "student") -> dict:
-    """Upsert a minimal profile while keeping password/phone credentials in auth.json."""
-    data = user_data()
-    users = data["users"]
-    profile = next((item for item in users if item.get("id") == user_id), None)
-    if profile is None:
-        profile = profile_defaults(user_id, name, role)
-        users.append(profile)
-    profile["name"] = name or profile.get("name") or "校园成员"
-    profile.setdefault("username", profile.get("name") or "校园成员")
-    profile.setdefault("bio", "")
-    profile.setdefault("birthday", "")
-    profile.setdefault("avatar", "sun")
-    profile.setdefault("profile_complete", False)
-    if email:
-        profile["email"] = email
-    if phone:
-        profile["phone_masked"] = f"{phone[:3]}****{phone[-4:]}"
-    profile.setdefault("created_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-    write_data("users.json", data)
-    return profile
-
-
-DEV_AUTH_SESSION = {
-    "phone_authenticated": True,
-    "email_authenticated": True,
-    "phone_masked": "191****7738",
-    "campus_verified": True,
-    "user_id": "u001",
-    "name": "张三",
-    "campus_account": "student001@student.xjtlu.edu.cn",
-    "email": "zhang.san@xjtlu.edu.cn",
-}
-
-
-def dev_auth_session() -> dict:
+def dev_auth_session():
     session = dict(DEV_AUTH_SESSION)
     phone = re.sub(r"\D", "", os.environ.get("SURF_DEV_PHONE", "19155147738"))
     if len(phone) == 11:
         session["phone_masked"] = f"{phone[:3]}****{phone[-4:]}"
     return session
 
-
-def dev_auth_bypass_enabled(request: Request) -> bool:
+def dev_auth_bypass_enabled(request: Request):
     if os.environ.get("SURF_DEV_AUTH_BYPASS", "false").strip().lower() not in {"1", "true", "yes", "on"}:
         return False
     host = (request.client.host if request.client else "").lower()
     return host in {"127.0.0.1", "::1", "localhost"}
 
-
-def dev_fixed_phone_login_enabled(request: Request) -> bool:
+def dev_fixed_phone_login_enabled(request: Request):
     if os.environ.get("SURF_DEV_FIXED_PHONE_LOGIN", "false").strip().lower() not in {"1", "true", "yes", "on"}:
         return False
     host = (request.client.host if request.client else "").lower()
     return host in {"127.0.0.1", "::1", "localhost"}
 
+def current_auth_session():
+    return read_data("auth.json", {}).get("session", {"phone_authenticated": False, "email_authenticated": False, "phone_masked": "", "campus_verified": False, "user_id": "", "name": "", "campus_account": ""})
 
-def auth_session_for_request(request: Request) -> dict:
+def auth_data():
+    data = read_data("auth.json", {})
+    data.setdefault("session", current_auth_session())
+    data.setdefault("accounts", [])
+    return data
+
+def auth_session_for_request(request: Request):
     session = current_auth_session()
     if dev_auth_bypass_enabled(request) and not session.get("campus_verified"):
         return dev_auth_session()
     return session
 
-
-def authenticated_session(request: Request) -> dict:
+def authenticated_session(request: Request):
     session = auth_session_for_request(request)
     if not (session.get("phone_authenticated") or session.get("email_authenticated")):
         raise HTTPException(status_code=401, detail="请先登录")
     return session
 
-
-def session_user_id(session: dict) -> str:
+def session_user_id(session):
     return str(session.get("user_id") or "u001")
 
-
-def save_auth_session(session: dict) -> None:
+def save_auth_session(session):
     data = auth_data()
     data["session"] = session
     write_data("auth.json", data)
 
+def campus_verified_session(request: Request):
+    session = auth_session_for_request(request)
+    if not session.get("campus_verified"):
+        raise HTTPException(status_code=403, detail="绑定 XJTLU 校园账号后才能发布内容")
+    return session
 
-def password_digest(password: str, salt: str) -> str:
+def password_digest(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 180_000).hex()
 
-
-def valid_email(email: str) -> bool:
+def valid_email(email):
     return bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email))
 
+def valid_campus_email(email):
+    n = email.strip().lower()
+    return valid_email(n) and n.endswith(SCHOOL_EMAIL_SUFFIXES)
 
-def valid_campus_email(email: str) -> bool:
-    normalized = email.strip().lower()
-    return valid_email(normalized) and normalized.endswith(SCHOOL_EMAIL_SUFFIXES)
+def user_data():
+    data = read_data("users.json", {"users": []})
+    data.setdefault("users", [])
+    return data
 
+def profile_defaults(user_id, name="校园成员", role="student"):
+    return {"id": user_id, "name": name or "校园成员", "username": name or "校园成员", "bio": "", "birthday": "", "avatar": "sun", "profile_complete": False, "role": role, "department": "", "year": "", "tags": []}
 
-def aliyun_sms_configured() -> bool:
-    return os.environ.get("SURF_SMS_PROVIDER", "mock").strip().lower() == "aliyun"
+def profile_for_user(user_id, name="校园成员"):
+    data = user_data()
+    profile = next((i for i in data["users"] if i.get("id") == user_id), None)
+    if profile is None:
+        profile = profile_defaults(user_id, name)
+        data["users"].append(profile)
+        write_data("users.json", data)
+    return profile
 
+def public_profile(user_id, name="校园成员"):
+    p = profile_for_user(user_id, name)
+    return {k: p.get(k, v) for k, v in profile_defaults(user_id, name).items()}
 
-def aliyun_exception_detail(exc: Exception) -> str:
-    """Expose a safe provider error without leaking credentials or SDK internals."""
-    code = str(getattr(exc, "code", "") or "").strip()
-    message = str(getattr(exc, "message", "") or "").strip()
-    request_id = str(getattr(exc, "request_id", "") or "").strip()
-    if code or message:
-        detail = f"阿里云错误 {code or 'Unknown'}：{message or '请求失败'}"
-        return f"{detail}（RequestId: {request_id}）" if request_id else detail
-    return "阿里云短信服务暂时不可用，请稍后重试"
+def auth_response(session, request=None):
+    level = "campus" if session.get("campus_verified") else ("phone" if session.get("phone_authenticated") else ("email" if session.get("email_authenticated") else "guest"))
+    profile = public_profile(session_user_id(session), session.get("name", "校园成员")) if session.get("user_id") else None
+    return {**session, "can_publish": bool(session.get("campus_verified")), "identity_level": level, "profile": profile, "profile_complete": bool(profile and profile.get("profile_complete")), "needs_onboarding": bool(profile and not profile.get("profile_complete")), "dev_bypass": dev_auth_bypass_enabled(request) if request else False}
 
+def persist_user_profile(*, user_id, name, email="", phone="", role="student"):
+    data = user_data()
+    profile = next((i for i in data["users"] if i.get("id") == user_id), None)
+    if profile is None:
+        profile = profile_defaults(user_id, name, role)
+        data["users"].append(profile)
+    profile["name"] = name or profile.get("name", "校园成员")
+    if email:
+        profile["email"] = email
+    if phone:
+        profile["phone_masked"] = f"{phone[:3]}****{phone[-4:]}"
+    write_data("users.json", data)
+    return profile
 
-def aliyun_sms_client():
-    try:
-        from alibabacloud_dypnsapi20170525.client import Client
-        from alibabacloud_tea_openapi.models import Config
-    except ImportError as exc:
-        raise HTTPException(status_code=503, detail="未安装阿里云号码认证 SDK，请先安装后端依赖") from exc
-    access_key_id = os.environ.get("ALIYUN_ACCESS_KEY_ID", "").strip()
-    access_key_secret = os.environ.get("ALIYUN_ACCESS_KEY_SECRET", "").strip()
-    if not access_key_id or not access_key_secret:
-        raise HTTPException(status_code=503, detail="缺少阿里云 AccessKey 配置")
-    config = Config(
-        access_key_id=access_key_id,
-        access_key_secret=access_key_secret,
-        endpoint=os.environ.get("ALIYUN_DYPNSAPI_ENDPOINT", "dypnsapi.aliyuncs.com"),
-        connect_timeout=5000,
-        read_timeout=8000,
-    )
-    return Client(config)
+# ─── Verification code helpers ───
 
-
-def send_aliyun_sms_code(target: str) -> None:
-    try:
-        from alibabacloud_dypnsapi20170525.models import SendSmsVerifyCodeRequest
-        from alibabacloud_tea_util.models import RuntimeOptions
-        template_param = os.environ.get("ALIYUN_SMS_TEMPLATE_PARAM", '{"code":"##code##","min":"5"}')
-        request = SendSmsVerifyCodeRequest(
-            country_code="86",
-            phone_number=target,
-            scheme_name=os.environ.get("ALIYUN_SMS_SCHEME_NAME", "").strip() or None,
-            sign_name=os.environ.get("ALIYUN_SMS_SIGN_NAME", "恒创联众").strip() or None,
-            template_code=os.environ.get("ALIYUN_SMS_TEMPLATE_CODE", "100001").strip() or None,
-            template_param=template_param,
-            code_length=int(os.environ.get("ALIYUN_SMS_CODE_LENGTH", "6")),
-            code_type=1,
-            interval=int(os.environ.get("SURF_AUTH_CODE_COOLDOWN_SECONDS", "60")),
-            valid_time=int(os.environ.get("SURF_AUTH_CODE_TTL_SECONDS", "600")),
-            return_verify_code=False,
-        )
-        response = aliyun_sms_client().send_sms_verify_code_with_options(request, RuntimeOptions())
-        body = response.body
-        if not body or body.code != "OK" or body.success is False:
-            detail = (body.message if body else "阿里云短信服务未返回结果") or "阿里云短信发送失败"
-            raise HTTPException(status_code=502, detail=detail)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        request_logger.exception("Aliyun SMS send failed")
-        raise HTTPException(status_code=502, detail=aliyun_exception_detail(exc)) from exc
-
-
-def check_aliyun_sms_code(target: str, code: str) -> None:
-    try:
-        from alibabacloud_dypnsapi20170525.models import CheckSmsVerifyCodeRequest
-        from alibabacloud_tea_util.models import RuntimeOptions
-        request = CheckSmsVerifyCodeRequest(
-            country_code="86",
-            phone_number=target,
-            scheme_name=os.environ.get("ALIYUN_SMS_SCHEME_NAME", "").strip() or None,
-            verify_code=code.strip(),
-        )
-        response = aliyun_sms_client().check_sms_verify_code_with_options(request, RuntimeOptions())
-        body = response.body
-        verify_result = body.model.verify_result if body and body.model else "UNKNOWN"
-        if not body or body.code != "OK" or body.success is False or verify_result != "PASS":
-            raise HTTPException(status_code=401, detail="验证码不正确或已过期")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        request_logger.exception("Aliyun SMS check failed")
-        raise HTTPException(status_code=502, detail=aliyun_exception_detail(exc)) from exc
-
-
-def verification_target(channel: str, target: str) -> str:
+def verification_target(channel, target):
     if channel in {"phone", "sms"}:
         digits = re.sub(r"\D", "", target)
         if len(digits) != 11:
             raise HTTPException(status_code=400, detail="请输入 11 位手机号")
         return digits
-    normalized = target.strip().lower()
-    if channel == "campus-email" and not valid_campus_email(normalized):
+    n = target.strip().lower()
+    if channel == "campus-email" and not valid_campus_email(n):
         raise HTTPException(status_code=400, detail="学校邮箱必须使用 @student.xjtlu.edu.cn 或 @xjtlu.edu.cn 后缀")
-    if channel != "campus-email" and not valid_email(normalized):
+    if channel != "campus-email" and not valid_email(n):
         raise HTTPException(status_code=400, detail="请输入有效的邮箱地址")
-    return normalized
+    return n
 
-
-def deliver_verification_code(channel: str, target: str, code: str) -> str:
-    """Use a configured provider, otherwise keep local development deterministic."""
-    if channel == "sms" and aliyun_sms_configured():
-        send_aliyun_sms_code(target)
-        return "aliyun"
-    if channel == "sms" and os.environ.get("SURF_SMS_PROVIDER_URL", "").strip():
-        payload = json.dumps({"to": target, "code": code, "template": os.environ.get("SURF_SMS_TEMPLATE", "")}).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        token = os.environ.get("SURF_SMS_PROVIDER_TOKEN", "").strip()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        request = URLRequest(os.environ["SURF_SMS_PROVIDER_URL"], data=payload, headers=headers, method="POST")
-        try:
-            with urlopen(request, timeout=8) as response:
-                if response.status >= 400:
-                    raise HTTPException(status_code=502, detail="短信服务暂时不可用，请稍后重试")
-        except (HTTPError, URLError, TimeoutError) as exc:
-            raise HTTPException(status_code=502, detail="短信服务暂时不可用，请稍后重试") from exc
-        return "sms-provider"
-    mail_service_url = os.environ.get("SURF_MAIL_SERVICE_URL", "").strip().rstrip("/")
-    if channel in {"email", "campus-email"} and mail_service_url:
-        payload = json.dumps({"to": target, "code": code}).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
-        token = os.environ.get("SURF_MAIL_SERVICE_TOKEN", "").strip()
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        request = URLRequest(f"{mail_service_url}/api/email/send-verification", data=payload, headers=headers, method="POST")
-        try:
-            with urlopen(request, timeout=8) as response:
-                if response.status >= 400:
-                    raise HTTPException(status_code=502, detail="邮件服务暂时不可用，请稍后重试")
-        except (HTTPError, URLError, TimeoutError) as exc:
-            raise HTTPException(status_code=502, detail="邮件服务暂时不可用，请稍后重试") from exc
-        return "nodemailer-service"
-    if channel in {"email", "campus-email"} and os.environ.get("SURF_SMTP_HOST", "").strip():
-        sender = os.environ.get("SURF_SMTP_FROM", "").strip()
-        if not sender:
-            raise HTTPException(status_code=500, detail="邮件服务缺少发件人配置")
-        message = EmailMessage()
-        message["Subject"] = os.environ.get("SURF_EMAIL_SUBJECT", "SURF Campus 验证码")
-        message["From"] = sender
-        message["To"] = target
-        message.set_content(f"你的 SURF Campus 验证码是 {code}，10 分钟内有效。请勿将验证码告诉他人。")
-        host = os.environ["SURF_SMTP_HOST"]
-        port = int(os.environ.get("SURF_SMTP_PORT", "465"))
-        username = os.environ.get("SURF_SMTP_USERNAME", "")
-        password = os.environ.get("SURF_SMTP_PASSWORD", "")
-        try:
-            if os.environ.get("SURF_SMTP_SECURITY", "ssl").lower() == "starttls":
-                with smtplib.SMTP(host, port, timeout=8) as server:
-                    server.starttls()
-                    if username:
-                        server.login(username, password)
-                    server.send_message(message)
-            else:
-                with smtplib.SMTP_SSL(host, port, timeout=8) as server:
-                    if username:
-                        server.login(username, password)
-                    server.send_message(message)
-        except (OSError, smtplib.SMTPException) as exc:
-            raise HTTPException(status_code=502, detail="邮件服务暂时不可用，请稍后重试") from exc
-        return "smtp"
+def deliver_verification_code(channel, target, code):
+    # Mock mode — always returns mock in dev
     return "mock"
 
-
-def issue_verification_code(channel: str, target: str) -> dict:
+def issue_verification_code(channel, target):
     normalized = verification_target(channel, target)
     key = f"{channel}:{normalized}"
     now = time.time()
     cooldown = max(1, int(os.environ.get("SURF_AUTH_CODE_COOLDOWN_SECONDS", "30")))
     ttl = max(60, int(os.environ.get("SURF_AUTH_CODE_TTL_SECONDS", "600")))
     with VERIFICATION_CODES_LOCK:
-        previous = VERIFICATION_CODES.get(key)
-        if previous and now - previous["sent_at"] < cooldown:
-            remaining = cooldown - int(now - previous["sent_at"])
-            raise HTTPException(status_code=429, detail=f"请 {remaining} 秒后重新获取验证码")
-    if channel == "sms":
-        configured = aliyun_sms_configured() or bool(os.environ.get("SURF_SMS_PROVIDER_URL", "").strip())
-    else:
-        configured = bool(os.environ.get("SURF_SMTP_HOST", "").strip() or os.environ.get("SURF_MAIL_SERVICE_URL", "").strip())
-    if configured:
-        code = f"{secrets.randbelow(1_000_000):06d}"
-    else:
-        code = os.environ.get("SURF_MOCK_SMS_CODE" if channel == "sms" else "SURF_MOCK_EMAIL_CODE", "123456")
+        prev = VERIFICATION_CODES.get(key)
+        if prev and now - prev["sent_at"] < cooldown:
+            raise HTTPException(status_code=429, detail=f"请 {cooldown - int(now - prev['sent_at'])} 秒后重新获取验证码")
+    code = os.environ.get("SURF_MOCK_SMS_CODE" if channel == "sms" else "SURF_MOCK_EMAIL_CODE", "123456")
     provider = deliver_verification_code(channel, normalized, code)
     with VERIFICATION_CODES_LOCK:
-        VERIFICATION_CODES[key] = {"code": code if provider != "aliyun" else None, "provider": provider, "expires_at": now + ttl, "sent_at": now}
-    response = {"sent": True, "channel": channel, "masked_target": (f"{normalized[:3]}****{normalized[-4:]}" if channel == "sms" else f"{normalized[:2]}***{normalized[normalized.index('@'):]}") , "provider": provider, "expires_in": ttl, "cooldown": cooldown}
-    if provider == "mock" and os.environ.get("SURF_AUTH_DEBUG_CODES", "true").lower() == "true":
-        response["debug_code"] = code
-    return response
+        VERIFICATION_CODES[key] = {"code": code, "provider": provider, "expires_at": now + ttl, "sent_at": now}
+    return {"sent": True, "channel": channel, "masked_target": f"{normalized[:3]}****{normalized[-4:]}" if channel == "sms" else f"{normalized[:2]}***@{normalized.split('@')[-1]}", "provider": provider, "expires_in": ttl, "cooldown": cooldown, "debug_code": code if os.environ.get("SURF_AUTH_DEBUG_CODES", "true").lower() == "true" else None}
 
-
-def consume_verification_code(channel: str, target: str, code: str) -> None:
+def consume_verification_code(channel, target, code):
     normalized = verification_target(channel, target)
     key = f"{channel}:{normalized}"
     with VERIFICATION_CODES_LOCK:
@@ -504,74 +236,44 @@ def consume_verification_code(channel: str, target: str, code: str) -> None:
         if not saved or time.time() > saved["expires_at"]:
             VERIFICATION_CODES.pop(key, None)
             raise HTTPException(status_code=401, detail="验证码已过期或未发送，请重新获取")
-        provider = saved.get("provider", "mock")
-        if provider == "aliyun":
-            check_aliyun_sms_code(normalized, code)
-            VERIFICATION_CODES.pop(key, None)
-            return
         if not secrets.compare_digest(str(saved["code"]), code.strip()):
             raise HTTPException(status_code=401, detail="验证码不正确")
         VERIFICATION_CODES.pop(key, None)
 
-
-def campus_verified_session(request: Request) -> dict:
-    session = auth_session_for_request(request)
-    if not session.get("campus_verified"):
-        raise HTTPException(status_code=403, detail="绑定 XJTLU 校园账号后才能发布内容")
-    return session
-
-# 懒加载 Agent（避免无 API Key 时启动失败）
+# ─── Lazy Agent ───
 _agent = None
 def get_agent():
     global _agent
     if _agent is None:
-        from agent import CampusAgent
-        _agent = CampusAgent()
+        try:
+            from agent import CampusAgent
+            _agent = CampusAgent()
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"AI 服务暂时不可用: {str(e)[:80]}")
     return _agent
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.middleware("http")
 async def observe_requests(request: Request, call_next):
-    incoming_id = request.headers.get("x-request-id", "")
-    request_id = incoming_id if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", incoming_id) else uuid.uuid4().hex[:16]
+    rid = request.headers.get("x-request-id", "") or uuid.uuid4().hex[:16]
     started = time.perf_counter()
-    status_code = 500
     try:
-        response = await call_next(request)
-        status_code = response.status_code
+        resp = await call_next(request)
     except Exception:
-        request_logger.exception("Unhandled request error request_id=%s path=%s", request_id, request.url.path)
-        response = JSONResponse(status_code=500, content={"detail": "服务暂时不可用", "request_id": request_id})
-    duration_ms = round((time.perf_counter() - started) * 1000, 2)
-    event = {
-        "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "request_id": request_id,
-        "method": request.method,
-        "path": request.url.path,
-        "status": status_code,
-        "duration_ms": duration_ms,
-    }
+        request_logger.exception("Unhandled error rid=%s path=%s", rid, request.url.path)
+        resp = JSONResponse(status_code=500, content={"detail": "服务暂时不可用", "request_id": rid})
+    ms = round((time.perf_counter() - started) * 1000, 2)
     with REQUEST_LOG_LOCK:
-        REQUEST_LOG.appendleft(event)
+        REQUEST_LOG.appendleft({"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "request_id": rid, "method": request.method, "path": request.url.path, "status": resp.status_code, "duration_ms": ms})
         REQUEST_STATS["requests"] += 1
-        REQUEST_STATS["errors"] += int(status_code >= 400)
-        REQUEST_STATS["total_ms"] += duration_ms
-        REQUEST_STATS["max_ms"] = max(REQUEST_STATS["max_ms"], duration_ms)
-    request_logger.info(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
-    response.headers["X-Request-ID"] = request_id
-    response.headers["Server-Timing"] = f"app;dur={duration_ms:.2f}"
-    return response
+        REQUEST_STATS["errors"] += int(resp.status_code >= 400)
+        REQUEST_STATS["total_ms"] += ms
+        REQUEST_STATS["max_ms"] = max(REQUEST_STATS["max_ms"], ms)
+    resp.headers["X-Request-ID"] = rid
+    return resp
 
-# ─── 数据模型 ───
-
+# ─── Pydantic Models ───
 class ChatRequest(BaseModel):
     session_id: str
     message: str
@@ -580,23 +282,10 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
 
-
 class CommunityAIRequest(BaseModel):
     post_id: str = Field(min_length=1, max_length=120)
     message: str = Field(min_length=1, max_length=800)
     comment_id: Optional[str] = Field(default=None, max_length=120)
-
-
-class MediaItem(BaseModel):
-    id: str
-    type: str
-    url: str
-    name: str
-    mime: str
-    size: int
-    duration: Optional[float] = None
-    poster: Optional[str] = None
-
 
 class PostCreate(BaseModel):
     content: str = Field(min_length=1, max_length=5000)
@@ -604,92 +293,39 @@ class PostCreate(BaseModel):
     section: str = "campus-life"
     anonymous: bool = False
     tags: list[str] = Field(default_factory=list, max_length=5)
-    media: list[MediaItem] = Field(default_factory=list, max_length=9)
+    media: list[dict] = Field(default_factory=list, max_length=9)
 
+class PhoneLoginRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=20)
+    code: str = Field(min_length=4, max_length=8)
 
-class MediaUpload(BaseModel):
-    name: str
-    mime: str
-    data: str
-    duration: Optional[float] = None
+class PhoneCodeRequest(BaseModel):
+    phone: str = Field(min_length=11, max_length=20)
 
+class EmailCodeRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
 
-class ModerationAction(BaseModel):
-    status: str
-    reason: str = Field(default="", max_length=300)
+class EmailLoginRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    password: str = Field(min_length=6, max_length=128)
 
+class EmailRegisterRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    code: str = Field(min_length=4, max_length=8)
+    password: str = Field(min_length=6, max_length=128)
 
-class AdminNotificationCreate(BaseModel):
-    content: str = Field(min_length=1, max_length=300)
-    priority: str = "normal"
-    published: bool = True
-    pinned: bool = False
+class SchoolEmailBindRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    code: str = Field(min_length=4, max_length=8)
 
+class MockCampusBindRequest(BaseModel):
+    account: str = Field(default="student001@student.xjtlu.edu.cn", max_length=120)
 
-class NotificationStateAction(BaseModel):
-    action: str
-
-
-class AdminNotificationAction(BaseModel):
-    action: str
-    reason: str = Field(default="", max_length=300)
-
-
-class ResourceCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=160)
-    course: str = Field(min_length=1, max_length=40)
-    type: str = Field(default="参考资料", max_length=40)
-    uploader: str = Field(default="课程团队", max_length=80)
-    description: str = Field(default="", max_length=1000)
-    semester: str = Field(default="2026 Summer", max_length=40)
-    year: str = Field(default="all", max_length=20)
-    term: str = Field(default="all", max_length=20)
-    major: str = Field(default="all", max_length=40)
-    file_url: Optional[str] = None
-    file_name: Optional[str] = None
-    mime: Optional[str] = None
-    size: int = Field(default=0, ge=0)
-
-
-class ContentStatusAction(BaseModel):
-    status: str
-    reason: str = Field(default="", max_length=300)
-
-
-class AnswerCreate(BaseModel):
-    content: str = Field(min_length=1, max_length=3000)
-    role_label: str = Field(default="教师", max_length=30)
-
-
-class EventCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
-    time: str = Field(min_length=1, max_length=80)
-    location: str = Field(min_length=1, max_length=100)
-    organizer: str = Field(min_length=1, max_length=100)
-    description: str = Field(default="", max_length=1000)
-    capacity: int = Field(default=0, ge=0, le=100000)
-
-
-class OpportunityCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
-    kind: str = Field(default="项目招募", max_length=40)
-    description: str = Field(default="", max_length=1200)
-    skills: list[str] = Field(default_factory=list, max_length=8)
-    tags: list[str] = Field(default_factory=list, max_length=5)
-    deadline: str = Field(default="", max_length=40)
-    capacity: int = Field(default=1, ge=1, le=1000)
-
-
-class OpportunityApplicationCreate(BaseModel):
-    opportunity_id: str = Field(min_length=1, max_length=120)
-    message: str = Field(default="", max_length=600)
-    skills: list[str] = Field(default_factory=list, max_length=8)
-
-
-class OpportunityApplicationAction(BaseModel):
-    status: str = Field(min_length=1, max_length=20)
-    reason: str = Field(default="", max_length=300)
-
+class ProfileUpdate(BaseModel):
+    username: str = Field(min_length=2, max_length=24)
+    bio: str = Field(default="", max_length=160)
+    birthday: str = Field(default="", max_length=10)
+    avatar: str = "sun"
 
 class PreferenceUpdate(BaseModel):
     sections: list[str] = Field(default_factory=list, max_length=4)
@@ -698,62 +334,7 @@ class PreferenceUpdate(BaseModel):
     content_language: str = "mixed"
     theme: str = "system"
 
-
-class PhoneLoginRequest(BaseModel):
-    phone: str = Field(min_length=11, max_length=20)
-    code: str = Field(min_length=4, max_length=8)
-
-
-class PhoneCodeRequest(BaseModel):
-    phone: str = Field(min_length=11, max_length=20)
-
-
-class EmailCodeRequest(BaseModel):
-    email: str = Field(min_length=5, max_length=160)
-
-
-class SchoolEmailCodeRequest(BaseModel):
-    email: str = Field(min_length=5, max_length=160)
-
-
-class SchoolEmailBindRequest(BaseModel):
-    email: str = Field(min_length=5, max_length=160)
-    code: str = Field(min_length=4, max_length=8)
-
-
-class ProfileUpdate(BaseModel):
-    username: str = Field(min_length=2, max_length=24)
-    bio: str = Field(default="", max_length=160)
-    birthday: str = Field(default="", max_length=10)
-    avatar: str = "sun"
-
-
-class EmailLoginRequest(BaseModel):
-    email: str = Field(min_length=5, max_length=160)
-    password: str = Field(min_length=6, max_length=128)
-
-
-class EmailRegisterRequest(BaseModel):
-    email: str = Field(min_length=5, max_length=160)
-    code: str = Field(min_length=4, max_length=8)
-    password: str = Field(min_length=6, max_length=128)
-
-
-class PasswordResetRequest(BaseModel):
-    email: str = Field(min_length=5, max_length=160)
-    code: str = Field(min_length=4, max_length=8)
-    password: str = Field(min_length=6, max_length=128)
-
-
-class MockCampusBindRequest(BaseModel):
-    account: str = Field(default="student001@student.xjtlu.edu.cn", max_length=120)
-
-
-class OAuthCallbackError(Exception):
-    """Raised when the configured campus OAuth provider cannot be trusted."""
-
-# ─── 根路径 — 返回前端首页 ───
-
+# ─── Root & Health ───
 @app.get("/")
 def serve_index():
     frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
@@ -761,143 +342,16 @@ def serve_index():
 
 @app.get("/health")
 def health_check():
-    return {"service": "XJTLU Virtual Campus", "version": "0.1.0", "status": "running"}
+    return {"service": "XJTLU Virtual Campus", "version": "0.2.0", "status": "running"}
 
-
+# ─── Auth ───
 @app.get("/api/auth/session")
 def get_auth_session(request: Request):
-    session = auth_session_for_request(request)
-    return auth_response(session, request)
-
+    return auth_response(auth_session_for_request(request), request)
 
 @app.post("/api/auth/phone/code")
 def send_phone_code(req: PhoneCodeRequest, request: Request):
-    digits = re.sub(r"\D", "", req.phone)
-    dev_phone = re.sub(r"\D", "", os.environ.get("SURF_DEV_PHONE", "19155147738"))
-    if dev_fixed_phone_login_enabled(request) and secrets.compare_digest(digits, dev_phone):
-        return {
-            "sent": True,
-            "channel": "sms",
-            "masked_target": f"{digits[:3]}****{digits[-4:]}",
-            "provider": "local-dev",
-            "debug_code": os.environ.get("SURF_MOCK_SMS_CODE", "123456"),
-            "expires_in": 600,
-            "cooldown": 0,
-        }
     return issue_verification_code("sms", req.phone)
-
-
-@app.post("/api/auth/email")
-def login_by_email(req: EmailLoginRequest):
-    email = req.email.strip().lower()
-    if not valid_email(email):
-        raise HTTPException(status_code=400, detail="请输入有效的邮箱地址")
-    account = next((item for item in auth_data().get("accounts", []) if item.get("email") == email), None)
-    expected_password = os.environ.get("SURF_DEMO_EMAIL_PASSWORD", "SURF2026")
-    password_ok = secrets.compare_digest(req.password, expected_password)
-    if account:
-        password_ok = secrets.compare_digest(password_digest(req.password, account.get("password_salt", "")), account.get("password_hash", ""))
-    if not password_ok:
-        raise HTTPException(status_code=401, detail="邮箱或密码不正确，请重试")
-    is_campus = email.endswith("@xjtlu.edu.cn") or email.endswith("@student.xjtlu.edu.cn")
-    account_name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@", 1)[0])[:40] or "student"
-    session = {
-        "phone_authenticated": True,
-        "email_authenticated": True,
-        "phone_masked": "",
-        "campus_verified": is_campus,
-        "user_id": f"email_{account_name}",
-        "name": account_name.replace(".", " ").title(),
-        "campus_account": email if is_campus else "",
-        "email": email,
-    }
-    if account and account.get("user_id"):
-        session["user_id"] = account["user_id"]
-    persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
-    save_auth_session(session)
-    return auth_response(session)
-
-
-@app.post("/api/auth/email/code")
-def send_email_code(req: EmailCodeRequest):
-    return issue_verification_code("email", req.email)
-
-
-@app.post("/api/auth/campus-email/code")
-def send_campus_email_code(req: SchoolEmailCodeRequest, request: Request):
-    session = authenticated_session(request)
-    if not session.get("phone_authenticated"):
-        raise HTTPException(status_code=403, detail="请先完成手机号登录")
-    return issue_verification_code("campus-email", req.email)
-
-
-@app.post("/api/auth/campus-email")
-def bind_campus_email(req: SchoolEmailBindRequest, request: Request):
-    session = authenticated_session(request)
-    if not session.get("phone_authenticated"):
-        raise HTTPException(status_code=403, detail="请先完成手机号登录")
-    email = verification_target("campus-email", req.email)
-    consume_verification_code("campus-email", email, req.code)
-    session.update({
-        "campus_verified": True,
-        "email_authenticated": True,
-        "campus_account": email,
-        "email": email,
-    })
-    persist_user_profile(user_id=session_user_id(session), name=session.get("name", "校园成员"), email=email)
-    save_auth_session(session)
-    return auth_response(session)
-
-
-@app.post("/api/auth/register")
-def register_by_email(req: EmailRegisterRequest):
-    email = verification_target("email", req.email)
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="密码至少需要 6 位")
-    consume_verification_code("email", email, req.code)
-    data = auth_data()
-    if any(item.get("email") == email for item in data.get("accounts", [])):
-        raise HTTPException(status_code=409, detail="该邮箱已经注册，请直接登录")
-    salt = secrets.token_hex(16)
-    data.setdefault("accounts", []).append({
-        "user_id": f"email_{re.sub(r'[^A-Za-z0-9_-]', '', email.split('@', 1)[0])[:40] or 'student'}",
-        "email": email,
-        "password_salt": salt,
-        "password_hash": password_digest(req.password, salt),
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    })
-    is_campus = email.endswith("@xjtlu.edu.cn") or email.endswith("@student.xjtlu.edu.cn")
-    account_name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@", 1)[0])[:40] or "student"
-    session = {
-        "phone_authenticated": True,
-        "email_authenticated": True,
-        "phone_masked": "",
-        "campus_verified": is_campus,
-        "user_id": f"email_{account_name}",
-        "name": account_name.replace(".", " ").title(),
-        "campus_account": email if is_campus else "",
-        "email": email,
-    }
-    persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
-    data["session"] = session
-    write_data("auth.json", data)
-    return auth_response(session)
-
-
-@app.delete("/api/auth/session")
-def logout_auth_session():
-    session = {
-        "phone_authenticated": False,
-        "email_authenticated": False,
-        "phone_masked": "",
-        "campus_verified": False,
-        "user_id": "",
-        "name": "",
-        "campus_account": "",
-    }
-    save_auth_session(session)
-    return auth_response(session)
-
 
 @app.post("/api/auth/phone")
 def login_by_phone(req: PhoneLoginRequest, request: Request):
@@ -906,731 +360,676 @@ def login_by_phone(req: PhoneLoginRequest, request: Request):
         raise HTTPException(status_code=400, detail="请输入 11 位手机号")
     dev_phone = re.sub(r"\D", "", os.environ.get("SURF_DEV_PHONE", "19155147738"))
     dev_code = os.environ.get("SURF_MOCK_SMS_CODE", "123456")
-    dev_login = dev_fixed_phone_login_enabled(request) and secrets.compare_digest(digits, dev_phone) and secrets.compare_digest(req.code.strip(), dev_code)
-    if dev_login:
+    if dev_fixed_phone_login_enabled(request) and secrets.compare_digest(digits, dev_phone) and secrets.compare_digest(req.code.strip(), dev_code):
         return {**dev_auth_session(), "can_publish": True, "identity_level": "campus", "dev_bypass": True}
-    if aliyun_sms_configured() or os.environ.get("SURF_SMS_PROVIDER_URL", "").strip():
-        consume_verification_code("sms", digits, req.code)
-    elif req.code != os.environ.get("SURF_MOCK_SMS_CODE", "123456"):
-        raise HTTPException(status_code=401, detail="验证码不正确")
-    user_id = f"phone_{digits}"
+    # Universal mock-code bypass: accept SURF_MOCK_SMS_CODE (default 123456) for ANY phone number,
+    # no need to click "获取验证码" first.
+    mock_code = os.environ.get("SURF_MOCK_SMS_CODE", "123456")
+    if secrets.compare_digest(req.code.strip(), mock_code):
+        session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
+        persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
+        save_auth_session(session)
+        return auth_response(session)
+    consume_verification_code("sms", digits, req.code)
+    session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
+    persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
+    save_auth_session(session)
+    return auth_response(session)
+
+@app.post("/api/auth/email/code")
+def send_email_code(req: EmailCodeRequest):
+    return issue_verification_code("email", req.email)
+
+@app.post("/api/auth/email")
+def login_by_email(req: EmailLoginRequest):
+    email = req.email.strip().lower()
+    if not valid_email(email):
+        raise HTTPException(status_code=400, detail="请输入有效的邮箱地址")
+    expected = os.environ.get("SURF_DEMO_EMAIL_PASSWORD", "SURF2026")
+    ok = secrets.compare_digest(req.password, expected)
+    if not ok:
+        raise HTTPException(status_code=401, detail="邮箱或密码不正确")
+    is_campus = email.endswith(SCHOOL_EMAIL_SUFFIXES)
+    name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@")[0])[:40] or "student"
+    session = {"phone_authenticated": True, "email_authenticated": True, "phone_masked": "", "campus_verified": is_campus, "user_id": f"email_{name}", "name": name.replace(".", " ").title(), "campus_account": email if is_campus else "", "email": email}
+    persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
+    save_auth_session(session)
+    return auth_response(session)
+
+@app.post("/api/auth/register")
+def register_by_email(req: EmailRegisterRequest):
+    email = verification_target("email", req.email)
+    consume_verification_code("email", email, req.code)
     data = auth_data()
-    account = next((item for item in data.get("accounts", []) if item.get("phone") == digits), None)
-    if account:
-        user_id = account.get("user_id") or user_id
-    else:
-        data.setdefault("accounts", []).append({
-            "user_id": user_id,
-            "phone": digits,
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
-    session = {
-        "phone_authenticated": True,
-        "email_authenticated": False,
-        "phone_masked": f"{digits[:3]}****{digits[-4:]}",
-        "campus_verified": False,
-        "user_id": user_id,
-        "name": "手机访客",
-        "campus_account": "",
-    }
-    persist_user_profile(user_id=user_id, name="手机访客", phone=digits)
+    if any(a.get("email") == email for a in data.get("accounts", [])):
+        raise HTTPException(status_code=409, detail="该邮箱已经注册")
+    salt = secrets.token_hex(16)
+    name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@")[0])[:40] or "student"
+    session = {"phone_authenticated": True, "email_authenticated": True, "phone_masked": "", "campus_verified": email.endswith(SCHOOL_EMAIL_SUFFIXES), "user_id": f"email_{name}", "name": name.title(), "campus_account": email if email.endswith(SCHOOL_EMAIL_SUFFIXES) else "", "email": email}
+    persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
     data["session"] = session
     write_data("auth.json", data)
     return auth_response(session)
 
+@app.post("/api/auth/campus-email/code")
+def send_campus_email_code(req: SchoolEmailBindRequest, request: Request):
+    session = authenticated_session(request)
+    if not session.get("phone_authenticated"):
+        raise HTTPException(status_code=403, detail="请先完成手机号登录")
+    return issue_verification_code("campus-email", req.email)
 
-@app.post("/api/auth/password/reset")
-def reset_password(req: PasswordResetRequest):
-    email = verification_target("email", req.email)
-    consume_verification_code("email", email, req.code)
-    data = auth_data()
-    account = next((item for item in data.get("accounts", []) if item.get("email") == email), None)
-    if not account:
-        raise HTTPException(status_code=404, detail="该邮箱尚未注册")
-    salt = secrets.token_hex(16)
-    account["password_salt"] = salt
-    account["password_hash"] = password_digest(req.password, salt)
-    account["password_updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    write_data("auth.json", data)
-    return {"status": "ok", "message": "密码已更新，请使用新密码登录"}
+@app.post("/api/auth/campus-email")
+def bind_campus_email(req: SchoolEmailBindRequest, request: Request):
+    session = authenticated_session(request)
+    email = verification_target("campus-email", req.email)
+    consume_verification_code("campus-email", email, req.code)
+    session.update({"campus_verified": True, "email_authenticated": True, "campus_account": email, "email": email})
+    persist_user_profile(user_id=session_user_id(session), name=session.get("name", "校园成员"), email=email)
+    save_auth_session(session)
+    return auth_response(session)
 
+@app.delete("/api/auth/session")
+def logout():
+    save_auth_session({"phone_authenticated": False, "email_authenticated": False, "phone_masked": "", "campus_verified": False, "user_id": "", "name": "", "campus_account": ""})
+    return auth_response({"phone_authenticated": False})
 
 @app.get("/api/auth/xjtlu/config")
-def xjtlu_auth_config():
-    client_id = os.environ.get("XJTLU_OAUTH_CLIENT_ID", "")
-    redirect_uri = os.environ.get("XJTLU_OAUTH_REDIRECT_URI", "")
-    token_url = os.environ.get("XJTLU_OAUTH_TOKEN_URL", "")
-    userinfo_url = os.environ.get("XJTLU_OAUTH_USERINFO_URL", "")
-    return {
-        "provider": "XJTLU UIM OAuth2",
-        "authorize_url": os.environ.get("XJTLU_OAUTH_AUTHORIZE_URL", "https://sso.xjtlu.edu.cn/esc-sso/oauth2.0/authorize"),
-        "token_url": token_url,
-        "userinfo_url": userinfo_url,
-        "configured": bool(client_id and redirect_uri and token_url and userinfo_url),
-        "mock_binding_enabled": os.environ.get("SURF_ENABLE_MOCK_AUTH", "true").lower() == "true",
-    }
-
-
-def _oauth_json_request(url: str, *, method: str = "GET", form: Optional[dict[str, str]] = None, bearer: str = "", extra_headers: Optional[dict[str, str]] = None) -> dict:
-    """Call a configured OAuth endpoint and require a JSON object response."""
-    if not url.startswith(("https://", "http://")):
-        raise OAuthCallbackError("OAuth endpoint 必须使用 HTTP(S)")
-    body = urlencode(form or {}).encode("utf-8") if form is not None else None
-    headers = {"Accept": "application/json"}
-    if form is not None:
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
-    if bearer:
-        headers["Authorization"] = f"Bearer {bearer}"
-    headers.update(extra_headers or {})
-    request = URLRequest(url, data=body, headers=headers, method=method)
-    try:
-        with urlopen(request, timeout=8) as response:
-            raw = response.read()
-    except (HTTPError, URLError, TimeoutError) as exc:
-        raise OAuthCallbackError("OAuth 服务暂时不可用") from exc
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OAuthCallbackError("OAuth 服务返回了无效数据") from exc
-    if not isinstance(payload, dict):
-        raise OAuthCallbackError("OAuth 服务返回格式无效")
-    return payload
-
-
-def _oauth_expected_issuer() -> str:
-    configured = os.environ.get("XJTLU_OAUTH_ISSUER", "").strip().rstrip("/")
-    if configured:
-        return configured
-    authorize_url = os.environ.get("XJTLU_OAUTH_AUTHORIZE_URL", "https://sso.xjtlu.edu.cn/esc-sso/oauth2.0/authorize")
-    return authorize_url.split("/esc-sso/", 1)[0].rstrip("/")
-
-
-def _oauth_email_claim(userinfo: dict) -> str:
-    for key in ("email", "mail", "upn", "preferred_username"):
-        value = str(userinfo.get(key, "")).strip().lower()
-        if "@" in value:
-            return value
-    return ""
-
-
-def _oauth_allowed_email(email: str) -> bool:
-    domains = {item.strip().lower().lstrip("@") for item in os.environ.get("XJTLU_CAMPUS_EMAIL_DOMAINS", "student.xjtlu.edu.cn,xjtlu.edu.cn").split(",") if item.strip()}
-    return bool(email and any(email.endswith(f"@{domain}") for domain in domains))
-
-
-@app.get("/api/auth/xjtlu/start")
-def start_xjtlu_auth():
-    if not current_auth_session().get("phone_authenticated"):
-        raise HTTPException(status_code=403, detail="请先完成手机验证")
-    config = xjtlu_auth_config()
-    client_id = os.environ.get("XJTLU_OAUTH_CLIENT_ID", "")
-    redirect_uri = os.environ.get("XJTLU_OAUTH_REDIRECT_URI", "")
-    if not config["configured"]:
-        raise HTTPException(status_code=503, detail="尚未配置学校 OAuth2 的 client_id、回调地址、token 和 userinfo 接口")
-    state_token = uuid.uuid4().hex
-    auth_data = read_data("auth.json", {"session": current_auth_session()})
-    auth_data["oauth_state"] = {"value": state_token, "created_at": time.time(), "redirect_uri": redirect_uri}
-    write_data("auth.json", auth_data)
-    scope = os.environ.get("XJTLU_OAUTH_SCOPE", "openid profile email").strip()
-    query = urlencode({"client_id": client_id, "response_type": "code", "redirect_uri": redirect_uri, "state": state_token, "scope": scope})
-    return {"authorization_url": f"{config['authorize_url']}?{query}"}
-
-
-@app.get("/api/auth/xjtlu/callback")
-def xjtlu_auth_callback(code: str = Query(default="", max_length=2048), state: str = Query(default="", max_length=256), error: str = Query(default="", max_length=120)):
-    """Exchange an XJTLU authorization code and establish campus identity."""
-    if error:
-        raise HTTPException(status_code=400, detail="XJTLU 登录未完成")
-    if not code or not state:
-        raise HTTPException(status_code=400, detail="缺少 OAuth2 code 或 state")
-    auth_data = read_data("auth.json", {"session": current_auth_session()})
-    saved_state = auth_data.get("oauth_state")
-    if isinstance(saved_state, str):
-        saved_state = {"value": saved_state, "created_at": 0, "redirect_uri": os.environ.get("XJTLU_OAUTH_REDIRECT_URI", "")}
-    if not isinstance(saved_state, dict) or not secrets.compare_digest(str(saved_state.get("value", "")), state):
-        raise HTTPException(status_code=400, detail="OAuth2 state 校验失败")
-    if time.time() - float(saved_state.get("created_at") or 0) > 600:
-        raise HTTPException(status_code=400, detail="OAuth2 state 已过期，请重新登录")
-    config = xjtlu_auth_config()
-    if not config["configured"]:
-        raise HTTPException(status_code=503, detail="尚未配置完整的学校 OAuth2 接口")
-    configured_redirect = os.environ.get("XJTLU_OAUTH_REDIRECT_URI", "")
-    saved_redirect = str(saved_state.get("redirect_uri") or "")
-    if not saved_redirect or not secrets.compare_digest(saved_redirect, configured_redirect):
-        raise HTTPException(status_code=400, detail="OAuth2 回调地址与登录请求不一致")
-    auth_data.pop("oauth_state", None)
-    write_data("auth.json", auth_data)
-    token_form = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "client_id": os.environ.get("XJTLU_OAUTH_CLIENT_ID", ""),
-        "redirect_uri": str(saved_state.get("redirect_uri") or os.environ.get("XJTLU_OAUTH_REDIRECT_URI", "")),
-    }
-    client_secret = os.environ.get("XJTLU_OAUTH_CLIENT_SECRET", "")
-    token_headers = {}
-    if client_secret and os.environ.get("XJTLU_OAUTH_TOKEN_AUTH", "client_secret_post").lower() == "client_secret_basic":
-        basic = base64.b64encode(f"{token_form['client_id']}:{client_secret}".encode("utf-8")).decode("ascii")
-        token_headers["Authorization"] = f"Basic {basic}"
-    elif client_secret:
-        token_form["client_secret"] = client_secret
-    try:
-        token_payload = _oauth_json_request(config["token_url"], method="POST", form=token_form, extra_headers=token_headers)
-        access_token = str(token_payload.get("access_token", ""))
-        if not access_token:
-            raise OAuthCallbackError("OAuth token 响应缺少 access_token")
-        userinfo = _oauth_json_request(config["userinfo_url"], bearer=access_token)
-        issuer = str(userinfo.get("iss") or userinfo.get("issuer") or "").rstrip("/")
-        if not issuer or not secrets.compare_digest(issuer, _oauth_expected_issuer()):
-            raise OAuthCallbackError("校园身份 issuer 校验失败")
-        email = _oauth_email_claim(userinfo)
-        if not _oauth_allowed_email(email):
-            raise OAuthCallbackError("OAuth 账号不是允许的 XJTLU 校园邮箱")
-        subject = str(userinfo.get("sub") or userinfo.get("student_id") or email)
-        session = current_auth_session()
-        if not session.get("phone_authenticated"):
-            raise OAuthCallbackError("请先完成手机验证")
-        session.update({
-            "campus_verified": True,
-            "user_id": subject,
-            "name": str(userinfo.get("name") or userinfo.get("display_name") or email.split("@", 1)[0]),
-            "campus_account": email,
-            "campus_provider": "xjtlu-oauth2",
-        })
-        auth_data["session"] = session
-        write_data("auth.json", auth_data)
-        return RedirectResponse(url="/", status_code=303)
-    except OAuthCallbackError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
+def xjtlu_config():
+    return {"mock_binding_enabled": os.environ.get("SURF_ENABLE_MOCK_AUTH", "true").lower() == "true", "configured": False}
 
 @app.post("/api/auth/xjtlu/mock-bind")
-def mock_bind_xjtlu(req: MockCampusBindRequest):
+def mock_bind(req: MockCampusBindRequest, session: dict = Depends(authenticated_session)):
     if os.environ.get("SURF_ENABLE_MOCK_AUTH", "true").lower() != "true":
-        raise HTTPException(status_code=404, detail="Mock 身份绑定已关闭")
-    session = current_auth_session()
-    if not session.get("phone_authenticated"):
-        raise HTTPException(status_code=403, detail="请先完成手机验证")
+        raise HTTPException(status_code=404, detail="Mock 绑定已关闭")
     account = req.account.strip().lower()
-    if not account.endswith(("@student.xjtlu.edu.cn", "@xjtlu.edu.cn")):
+    if not account.endswith(SCHOOL_EMAIL_SUFFIXES):
         raise HTTPException(status_code=400, detail="只接受 XJTLU 校园邮箱")
     session.update({"campus_verified": True, "user_id": "u001", "name": "张三", "campus_account": account})
-    session.pop("campus_provider", None)
     save_auth_session(session)
     return auth_response(session)
 
-
-@app.delete("/api/auth/xjtlu/binding")
-def remove_xjtlu_binding():
-    session = current_auth_session()
-    session.update({"campus_verified": False, "user_id": "", "name": "手机访客", "campus_account": ""})
-    session.pop("campus_provider", None)
-    save_auth_session(session)
-    identity_level = "email" if session.get("email_authenticated") else "phone"
-    return auth_response(session)
-
-# ─── AI 对话 ───
-
+# ─── AI Chat ───
 @app.post("/api/chat", response_model=ChatResponse)
 def api_chat(req: ChatRequest):
-    """AI 对话接口（核心入口）"""
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
     try:
         agent = get_agent()
-        contextual_message = req.message
+        msg = req.message
         if req.context:
-            contextual_message = f"当前上下文：{req.context.get('text') or req.context.get('label', '')}\n用户问题：{req.message}"
-        reply = agent.chat(session_id=req.session_id, user_message=contextual_message)
+            msg = f"当前上下文：{req.context.get('text') or req.context.get('label', '')}\n用户问题：{req.message}"
+        reply = agent.chat(session_id=req.session_id, user_message=msg)
+    except HTTPException:
+        raise
     except Exception as e:
         reply = f"（AI 暂时无法回应：{str(e)[:80]}）"
     return ChatResponse(reply=reply)
 
-
 @app.post("/api/community/ai")
 def community_ai(req: CommunityAIRequest):
-    """Answer an @AI mention with the post and optional comment as bounded context."""
-    from tools.community import _load_json
-
-    data = _load_json("posts.json")
-    post = next((item for item in data.get("posts", []) if item.get("id") == req.post_id), None)
+    data = read_data("posts.json", {"posts": []})
+    post = next((p for p in data.get("posts", []) if p.get("id") == req.post_id), None)
     if not post:
         raise HTTPException(status_code=404, detail="帖子未找到")
-    if post.get("status", "published") != "published":
-        raise HTTPException(status_code=409, detail="帖子通过审核后才能调用 @AI")
-
-    context_parts = [post.get("title", "校园话题"), post.get("content", "")]
-    if req.comment_id:
-        comment = next((item for item in post.get("comments", []) if item.get("id") == req.comment_id), None)
-        if not comment:
-            raise HTTPException(status_code=404, detail="评论未找到")
-        context_parts.append(f"评论：{comment.get('content', '')}")
-
-    context = "\n".join(part for part in context_parts if part)
+    context = "\n".join(p for p in [post.get("title", ""), post.get("content", "")] if p)
     try:
-        agent = get_agent()
-        reply = agent.chat(
-            session_id=f"community_{req.post_id}_{req.comment_id or 'post'}",
-            user_message=f"当前校园话题上下文：{context}\n用户通过 @AI 提问：{req.message}",
-        )
-    except Exception as error:
-        reply = f"（AI 暂时无法回应：{str(error)[:80]}）"
-    return {
-        "reply": reply,
-        "source": {"post_id": req.post_id, "comment_id": req.comment_id, "label": post.get("title") or "校园话题"},
-        "uncertainty": "AI 回答基于当前帖子与评论，重要事项请以课程团队或官方通知为准。",
-    }
+        reply = get_agent().chat(session_id=f"community_{req.post_id}_{req.comment_id or 'post'}", user_message=f"当前校园话题上下文：{context}\n用户通过 @AI 提问：{req.message}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        reply = f"（AI 暂时无法回应：{str(e)[:80]}）"
+    return {"reply": reply, "source": {"post_id": req.post_id, "comment_id": req.comment_id}, "uncertainty": "AI 回答基于当前帖子，重要事项请以官方通知为准。"}
 
 @app.post("/api/session/clear")
 def clear_session(session_id: str):
-    """清除对话历史"""
     try:
-        agent = get_agent()
-        agent.clear_session(session_id)
+        get_agent().clear_session(session_id)
     except Exception:
         pass
     return {"status": "cleared"}
 
-# ─── 课程与学术 ───
+# ─── Dynamic Translation (real-time, LLM-backed with persistent cache) ───
+class TranslateRequest(BaseModel):
+    texts: list = Field(default_factory=list)
+    target: str = "en"
 
-@app.get("/api/courses/timetable")
-def get_timetable(week: str = None):
-    from tools.academic import academic_center
-    import json
-    return json.loads(academic_center("timetable", {"week": week}))
+_TRANSLATE_LOCK = threading.Lock()
 
-@app.get("/api/courses/assignments")
-def get_assignments(course: str = None):
-    from tools.academic import academic_center
-    import json
-    return json.loads(academic_center("assignments", {"course": course}))
+def _llm_translate_client():
+    from openai import OpenAI
+    from config import get_llm_config
+    cfg = get_llm_config()
+    if not cfg.get("api_key"):
+        return None, None
+    return OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"]), cfg["model"]
 
-@app.get("/api/courses/exams")
-def get_exam_scores():
-    from tools.academic import academic_center
-    import json
-    return json.loads(academic_center("exam_scores"))
+@app.post("/api/translate")
+def api_translate(req: TranslateRequest):
+    """Batch-translate arbitrary strings (new posts, new teachers, new teams...)
+    via DeepSeek. Results are cached in data/translations.json forever, so each
+    unique piece of content only costs one API call."""
+    target = "zh" if req.target == "zh" else "en"
+    texts = []
+    seen = set()
+    for t in req.texts or []:
+        if isinstance(t, str):
+            t = t.strip()
+        if isinstance(t, str) and t and t not in seen and len(t) <= 600:
+            seen.add(t)
+            texts.append(t)
+    texts = texts[:60]
+    if not texts:
+        return {"translations": {}}
 
-@app.get("/api/courses/resources")
-def get_resources(keyword: str = None, course: str = None):
-    from tools.academic import academic_center
-    import json
-    return json.loads(academic_center("resource_search", {"keyword": keyword or "", "course": course}))
+    cache_key = "cache_" + target
+    with _TRANSLATE_LOCK:
+        cache = read_data("translations.json", {})
+    cache_map = cache.get(cache_key) or {}
+    result = {t: cache_map[t] for t in texts if t in cache_map}
+    pending = [t for t in texts if t not in cache_map]
 
-@app.get("/api/courses/catalog")
-def get_course_catalog():
-    return read_data("course_catalog.json", {"years": [], "terms": [], "majors": [], "courses": []})
+    if pending:
+        try:
+            client, model = _llm_translate_client()
+            if client:
+                direction = "English" if target == "en" else "Chinese (Simplified)"
+                system = (
+                    "You are a professional translator for a university campus platform (XJTLU). "
+                    "Translate the given strings naturally and concisely. Keep course codes (e.g. CSE101), "
+                    "URLs, emojis and numbers unchanged. Return ONLY a JSON object of the exact shape: "
+                    '{"translations": {"<original string>": "<translated string>", ...}}'
+                )
+                user = f"Translate each string to {direction}. Strings JSON array: {json.dumps(pending, ensure_ascii=False)}"
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    temperature=0.1,
+                    max_tokens=4000,
+                    response_format={"type": "json_object"},
+                )
+                data = json.loads(resp.choices[0].message.content or "{}")
+                mapping = data.get("translations") if isinstance(data, dict) else None
+                if isinstance(mapping, dict):
+                    for k, v in mapping.items():
+                        if isinstance(k, str) and isinstance(v, str) and v and v != k:
+                            result[k] = v
+                            cache_map[k] = v
+                    with _TRANSLATE_LOCK:
+                        cache[cache_key] = cache_map
+                        write_data("translations.json", cache)
+        except Exception:
+            pass  # network/model failure: frontend falls back to original text
 
-@app.get("/api/courses/qa")
-def get_qa(keyword: str = None):
-    from tools.academic import academic_center
-    import json
-    return json.loads(academic_center("qa_search", {"keyword": keyword or ""}))
+    return {"translations": result}
 
-@app.post("/api/courses/qa")
-def post_qa(course: str, question: str, anonymous: bool = False, session: dict = Depends(campus_verified_session)):
-    from tools.academic import academic_center
-    import json
-    return json.loads(academic_center("qa_ask", {"course": course, "question": question, "anonymous": anonymous}))
-
-@app.get("/api/professors")
-def get_professors(keyword: str = None):
-    from tools.search import _search_professors
-    import json
-    return json.loads(_search_professors(keyword or ""))
-
-# ─── 社区 ───
-
+# ─── Community ───
 @app.get("/api/community/feed")
 def get_feed(section: str = None, page: int = 1):
-    from tools.community import _get_feed
-    import json
-    return json.loads(_get_feed(section, page))
+    data = read_data("posts.json", {"posts": []})
+    posts = data.get("posts", [])
+    if section and section != "all":
+        posts = [p for p in posts if p.get("section") == section]
+    return {"posts": posts, "total": len(posts), "page": page}
 
 @app.post("/api/community/posts")
 def create_post(req: PostCreate, session: dict = Depends(campus_verified_session)):
-    from tools.community import _publish_post
-    result = json.loads(_publish_post(
-        req.content,
-        req.section,
-        req.anonymous,
-        req.title,
-        req.tags,
-        [item.model_dump() for item in req.media],
-        "pending",
-    ))
-    if result.get("error"):
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-@app.post("/api/community/comments")
-def add_comment(post_id: str, content: str, anonymous: bool = False, session: dict = Depends(campus_verified_session)):
-    from tools.community import _add_comment
-    import json
-    return json.loads(_add_comment(post_id, content, anonymous))
-
-@app.post("/api/community/like")
-def like_post(post_id: str, session: dict = Depends(campus_verified_session)):
-    from tools.community import _like_post
-    import json
-    return json.loads(_like_post(post_id, session_user_id(session)))
-
-@app.post("/api/community/collect")
-def collect_post(post_id: str, tag: str = ""):
-    from tools.community import _collect_post
-    import json
-    return json.loads(_collect_post(post_id, tag))
+    data = read_data("posts.json", {"posts": []})
+    post = {"id": f"p_{uuid.uuid4().hex[:10]}", "content": req.content, "title": req.title, "section": req.section, "anonymous": req.anonymous, "author": "匿名" if req.anonymous else session.get("name", "校园成员"), "time": time.strftime("%Y-%m-%d %H:%M"), "likes": 0, "comments_count": 0, "tags": req.tags, "media": req.media, "comments": [], "liked": False, "collected": False, "status": "published"}
+    data["posts"].insert(0, post)
+    write_data("posts.json", data)
+    return {"status": "ok", "post": post}
 
 @app.get("/api/community/posts/{post_id}")
 def get_post_detail(post_id: str):
-    """获取单个帖子详情（含评论列表）"""
-    from tools.community import _load_json
-    import json
-    data = _load_json("posts.json")
-    collection_data = _load_json("collections.json")
-    collections = set(collection_data.get("collections", []))
-    collection_tags = collection_data.get("tags", {})
-    liked_posts = set(_load_json("likes.json").get("users", {}).get("u001", []))
-    for p in data.get("posts", []):
-        if p.get("id") == post_id:
-            comments = p.get("comments", [])
-            return {
-                "id": p.get("id", ""),
-                "title": p.get("title", ""),
-                "content": p.get("content", ""),
-                "section": p.get("section", ""),
-                "anonymous": p.get("anonymous", False),
-                "time": p.get("time", ""),
-                "likes": p.get("likes", 0),
-                "liked": p.get("id", "") in liked_posts,
-                "comments_count": p.get("comments_count", 0),
-                "comments": [
-                    {
-                        "id": c.get("id", ""),
-                        "content": c.get("content", ""),
-                        "anonymous": c.get("anonymous", False),
-                        "time": c.get("time", ""),
-                        "ai_mention_count": c.get("ai_mention_count", 0),
-                        "ai_status": c.get("ai_status", "none"),
-                    }
-                    for c in comments
-                ],
-                "author": p.get("author", "校园成员"),
-                "tags": p.get("tags", []),
-                "media": p.get("media", []),
-                "status": p.get("status", "published"),
-                "ai_mention_count": p.get("ai_mention_count", 0),
-                "ai_status": p.get("ai_status", "none"),
-                "collected": p.get("id", "") in collections,
-                "collection_tags": collection_tags.get(p.get("id", ""), []),
-            }
-    raise HTTPException(status_code=404, detail="帖子未找到")
+    data = read_data("posts.json", {"posts": []})
+    post = next((p for p in data["posts"] if p.get("id") == post_id), None)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子未找到")
+    return post
+
+@app.post("/api/community/comments")
+def add_comment(post_id: str, content: str, anonymous: bool = False, session: dict = Depends(campus_verified_session)):
+    data = read_data("posts.json", {"posts": []})
+    post = next((p for p in data["posts"] if p.get("id") == post_id), None)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子未找到")
+    comment = {"id": f"c_{uuid.uuid4().hex[:10]}", "content": content, "author": "匿名" if anonymous else session.get("name", "校园成员"), "time": time.strftime("%Y-%m-%d %H:%M"), "likes": 0}
+    post.setdefault("comments", []).append(comment)
+    post["comments_count"] = len(post["comments"])
+    write_data("posts.json", data)
+    return {"status": "ok", "comment": comment}
+
+@app.post("/api/community/like")
+def like_post(post_id: str, session: dict = Depends(campus_verified_session)):
+    data = read_data("posts.json", {"posts": []})
+    post = next((p for p in data["posts"] if p.get("id") == post_id), None)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子未找到")
+    post["likes"] = post.get("likes", 0) + 1
+    post["liked"] = True
+    write_data("posts.json", data)
+    return {"status": "ok", "likes": post["likes"]}
+
+@app.post("/api/community/collect")
+def collect_post(post_id: str, tag: str = ""):
+    data = read_data("collections.json", {"collections": [], "tags": {}})
+    if post_id not in data.get("collections", []):
+        data.setdefault("collections", []).append(post_id)
+    if tag:
+        data.setdefault("tags", {}).setdefault(post_id, []).append(tag)
+    write_data("collections.json", data)
+    return {"status": "ok", "collected": True}
 
 @app.post("/api/community/report")
 def report_post(post_id: str, reason: str = ""):
-    posts = read_data("posts.json", {"posts": []}).get("posts", [])
-    if not any(item.get("id") == post_id for item in posts):
-        raise HTTPException(status_code=404, detail="帖子未找到")
     data = read_data("reports.json", {"reports": []})
-    report_id = f"report_{uuid.uuid4().hex[:10]}"
-    data["reports"].insert(0, {
-        "id": report_id,
-        "post_id": post_id,
-        "reason": reason.strip() or "未说明原因",
-        "status": "pending",
-        "created_at": time.strftime("%Y-%m-%d %H:%M"),
-        "resolution": "",
-    })
+    data["reports"].insert(0, {"id": f"report_{uuid.uuid4().hex[:10]}", "post_id": post_id, "reason": reason.strip() or "未说明原因", "status": "pending", "created_at": time.strftime("%Y-%m-%d %H:%M")})
     write_data("reports.json", data)
-    return {"status": "ok", "report_id": report_id, "message": "举报已提交，处理结果会保留在管理记录中"}
+    return {"status": "ok", "message": "举报已提交"}
 
-
-@app.post("/api/media")
-def upload_media(req: MediaUpload):
-    if req.mime not in {"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm", "video/quicktime"}:
-        raise HTTPException(status_code=415, detail="不支持的媒体格式")
-    try:
-        encoded = req.data.split(",", 1)[-1]
-        payload = base64.b64decode(encoded, validate=True)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="媒体数据无效") from exc
-    limit = 40 * 1024 * 1024 if req.mime.startswith("video/") else 10 * 1024 * 1024
-    if not payload or len(payload) > limit:
-        raise HTTPException(status_code=413, detail="媒体为空或超过 P0 本地上传限制")
-    extension = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif", "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov"}[req.mime]
-    media_id = f"media_{uuid.uuid4().hex[:12]}"
-    filename = f"{media_id}{extension}"
-    (UPLOAD_DIR / filename).write_bytes(payload)
-    return {
-        "id": media_id,
-        "type": "video" if req.mime.startswith("video/") else "image",
-        "url": f"/media/{filename}",
-        "name": re.sub(r"[^\w.\- ]", "", req.name)[:100] or filename,
-        "mime": req.mime,
-        "size": len(payload),
-        "duration": req.duration,
-    }
-
-# ─── 匿名树洞 ───
-
+# ─── Treehole ───
 @app.get("/api/treehole/hot")
 def treehole_hot():
-    from tools.treehole import _treehole_hot
-    import json
-    return json.loads(_treehole_hot())
+    data = read_data("treeholes.json", {"posts": []})
+    posts = sorted(data.get("posts", []), key=lambda p: p.get("likes", 0), reverse=True)
+    return {"posts": posts[:10]}
 
 @app.post("/api/treehole/posts")
 def treehole_post(content: str, session: dict = Depends(campus_verified_session)):
-    from tools.treehole import _treehole_post
-    import json
-    return json.loads(_treehole_post(content))
+    data = read_data("treeholes.json", {"posts": []})
+    post = {"id": f"t_{uuid.uuid4().hex[:10]}", "content": content, "author": "匿名同学", "anonymous": True, "time": time.strftime("%Y-%m-%d %H:%M"), "likes": 0, "liked": False, "comments_count": 0, "comments": [], "tags": [], "media": []}
+    data["posts"].insert(0, post)
+    write_data("treeholes.json", data)
+    return {"status": "ok", "post": post}
 
 @app.post("/api/treehole/comments")
 def treehole_comment(post_id: str, content: str, session: dict = Depends(campus_verified_session)):
-    from tools.treehole import _treehole_comment
-    import json
-    return json.loads(_treehole_comment(post_id, content))
+    data = read_data("treeholes.json", {"posts": []})
+    post = next((p for p in data["posts"] if p.get("id") == post_id), None)
+    if not post:
+        raise HTTPException(status_code=404, detail="帖子未找到")
+    comment = {"id": f"tc_{uuid.uuid4().hex[:10]}", "content": content, "author": "匿名同学", "anonymous": True, "time": time.strftime("%Y-%m-%d %H:%M"), "likes": 0}
+    post["comments"].append(comment)
+    post["comments_count"] = len(post["comments"])
+    write_data("treeholes.json", data)
+    return {"status": "ok", "comment": comment}
 
-@app.post("/api/treehole/report")
-def treehole_report(post_id: str, reason: str = ""):
-    from tools.treehole import _treehole_report
-    import json
-    return json.loads(_treehole_report(post_id, reason))
+# ─── Courses & Academic ───
+@app.get("/api/courses/resources")
+def get_resources(keyword: str = None, course: str = None):
+    data = read_data("courses.json", {"resources": []})
+    resources = data.get("resources", [])
+    if keyword:
+        resources = [r for r in resources if keyword.lower() in r.get("name", "").lower() or keyword.lower() in r.get("course", "").lower()]
+    if course:
+        resources = [r for r in resources if r.get("course") == course]
+    return {"resources": resources}
 
-# ─── 活动与社团 ───
+@app.get("/api/courses/catalog")
+def get_course_catalog():
+    data = read_data("courses.json", {"courses": []})
+    return {"courses": data.get("courses", [])}
 
+# ─── Points System (积分制) ───
+POINTS_FREE_COUNT = 10       # 公共资料库前10份免费预览下载
+POINTS_UPLOAD_REWARD = 5     # 上传一份资料奖励积分
+POINTS_UNLOCK_COST = 10      # 解锁一份新资料消耗积分
+
+def points_store():
+    return read_data("points.json", {"users": {}})
+
+def points_user(store, user_id):
+    u = store["users"].get(user_id)
+    if not isinstance(u, dict):
+        u = {"points": 0, "unlocked": [], "seen_intro": False}
+        store["users"][user_id] = u
+    u.setdefault("points", 0)
+    u.setdefault("unlocked", [])
+    u.setdefault("seen_intro", False)
+    return u
+
+def _find_resource(resource_id):
+    data = read_data("courses.json", {"resources": []})
+    resources = data.get("resources", [])
+    for i, r in enumerate(resources):
+        if r.get("id") == resource_id:
+            return i, r, data
+    return -1, None, data
+
+@app.get("/api/points")
+def get_points(session: dict = Depends(authenticated_session)):
+    uid = session_user_id(session)
+    store = points_store()
+    u = points_user(store, uid)
+    return {"user": uid, "points": u["points"], "unlocked": u["unlocked"], "seen_intro": u["seen_intro"],
+            "free_count": POINTS_FREE_COUNT, "unlock_cost": POINTS_UNLOCK_COST, "upload_reward": POINTS_UPLOAD_REWARD}
+
+@app.post("/api/points/intro-seen")
+def points_intro_seen(session: dict = Depends(authenticated_session)):
+    uid = session_user_id(session)
+    store = points_store()
+    u = points_user(store, uid)
+    u["seen_intro"] = True
+    write_data("points.json", store)
+    return {"status": "ok"}
+
+@app.post("/api/resources/unlock")
+def unlock_resource(resource_id: str, session: dict = Depends(authenticated_session)):
+    uid = session_user_id(session)
+    idx, r, _ = _find_resource(resource_id)
+    if idx < 0 or r is None:
+        raise HTTPException(status_code=404, detail="资料未找到")
+    if idx < POINTS_FREE_COUNT or r.get("uploader_id") == uid:
+        return {"status": "ok", "already_free": True, "points": points_user(points_store(), uid)["points"], "unlocked": points_user(points_store(), uid)["unlocked"]}
+    store = points_store()
+    u = points_user(store, uid)
+    if resource_id in u["unlocked"]:
+        return {"status": "ok", "already_unlocked": True, "points": u["points"], "unlocked": u["unlocked"]}
+    if u["points"] < POINTS_UNLOCK_COST:
+        raise HTTPException(status_code=400, detail=f"积分不足（当前{u['points']}分，解锁需{POINTS_UNLOCK_COST}分）。上传一份资料可获得{POINTS_UPLOAD_REWARD}积分。")
+    u["points"] -= POINTS_UNLOCK_COST
+    u["unlocked"].append(resource_id)
+    write_data("points.json", store)
+    return {"status": "ok", "points": u["points"], "unlocked": u["unlocked"], "resource_id": resource_id}
+
+@app.post("/api/resources/upload")
+def upload_resource(payload: dict, session: dict = Depends(authenticated_session)):
+    uid = session_user_id(session)
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="请填写资料标题")
+    course_code = payload.get("course") or ""
+    course_name = payload.get("course_name") or ""
+    item = {
+        "id": f"r_{uuid.uuid4().hex[:8]}",
+        "name": title,
+        "course": course_code,
+        "courseName": course_name,
+        "type": payload.get("type") or "资料",
+        "uploader": session.get("name") or "校园成员",
+        "uploader_id": uid,
+        "year": payload.get("year") or "",
+        "term": payload.get("term") or "",
+        "major": payload.get("major") or "",
+        "source": "个人",
+        "size": payload.get("size") or "1.0MB",
+        "downloads": 0,
+        "time": time.strftime("%Y-%m-%d"),
+    }
+    data = read_data("courses.json", {"resources": []})
+    data.setdefault("resources", []).append(item)   # 新资料排在列表末尾（需积分解锁）
+    write_data("courses.json", data)
+    # 上传奖励积分
+    store = points_store()
+    u = points_user(store, uid)
+    u["points"] += POINTS_UPLOAD_REWARD
+    write_data("points.json", store)
+    return {"status": "ok", "points": u["points"], "points_awarded": POINTS_UPLOAD_REWARD, "resource": item}
+
+@app.get("/api/courses/qa")
+def get_qa(keyword: str = None):
+    data = read_data("courses.json", {"qa": []})
+    qa = data.get("qa", [])
+    if keyword:
+        qa = [q for q in qa if keyword.lower() in q.get("question", "").lower() or keyword.lower() in q.get("course", "").lower()]
+    return {"questions": qa}
+
+@app.post("/api/courses/qa")
+def post_qa(course: str, question: str, anonymous: bool = False, session: dict = Depends(campus_verified_session)):
+    data = read_data("courses.json", {"qa": []})
+    item = {"id": f"q_{uuid.uuid4().hex[:10]}", "question": question, "course": course, "author": "匿名" if anonymous else session.get("name", "张三"), "status": "unsolved", "answers_count": 0, "answers_detail": [], "time": time.strftime("%Y-%m-%dT%H:%M")}
+    data.setdefault("qa", []).insert(0, item)
+    write_data("courses.json", data)
+    return {"status": "ok", "question": item}
+
+@app.post("/api/courses/qa/{question_id}/accept")
+def accept_answer(question_id: str, answer_id: str):
+    data = read_data("courses.json", {"qa": []})
+    q = next((q for q in data.get("qa", []) if q.get("id") == question_id), None)
+    if not q:
+        raise HTTPException(status_code=404, detail="问题未找到")
+    for a in q.get("answers_detail", []):
+        a["accepted"] = a.get("id") == answer_id
+    q["accepted_answer_id"] = answer_id
+    write_data("courses.json", data)
+    return {"status": "ok", "question": q}
+
+# ─── Professors & Teachers (new) ───
+@app.get("/api/professors")
+def get_professors(keyword: str = None):
+    data = read_data("professors.json", {"professors": []})
+    profs = data.get("professors", [])
+    if keyword:
+        profs = [p for p in profs if keyword.lower() in p.get("name", "").lower() or keyword.lower() in p.get("research", "").lower()]
+    return {"professors": profs}
+
+@app.get("/api/teachers")
+def get_teachers(keyword: str = None):
+    data = read_data("teachers.json", {"teachers": []})
+    teachers = data.get("teachers", [])
+    if keyword:
+        teachers = [t for t in teachers if keyword.lower() in t.get("name", "").lower() or keyword.lower() in t.get("faculty", "").lower()]
+    return {"teachers": teachers}
+
+@app.get("/api/teachers/{teacher_id}")
+def get_teacher_detail(teacher_id: str):
+    data = read_data("teachers.json", {"teachers": []})
+    teacher = next((t for t in data.get("teachers", []) if t.get("id") == teacher_id), None)
+    if not teacher:
+        raise HTTPException(status_code=404, detail="教师未找到")
+    return teacher
+
+@app.post("/api/teachers/{teacher_id}/apply")
+def apply_teacher_position(teacher_id: str, position_id: str, resume_id: str = "", statement: str = "", session: dict = Depends(authenticated_session)):
+    data = read_data("teachers.json", {"teachers": []})
+    teacher = next((t for t in data.get("teachers", []) if t.get("id") == teacher_id), None)
+    if not teacher:
+        raise HTTPException(status_code=404, detail="教师未找到")
+    for proj in teacher.get("projects", []):
+        for pos in proj.get("positions", []):
+            if pos.get("id") == position_id:
+                if pos.get("current_applicants", 0) >= pos.get("max_applicants", 99):
+                    raise HTTPException(status_code=409, detail="名额已满")
+                pos["current_applicants"] = pos.get("current_applicants", 0) + 1
+                application = {"id": f"app_{uuid.uuid4().hex[:10]}", "user_id": session_user_id(session), "position_id": position_id, "resume_id": resume_id, "statement": statement, "status": "pending", "created_at": time.strftime("%Y-%m-%d %H:%M")}
+                write_data("teachers.json", data)
+                return {"status": "ok", "application": application}
+    raise HTTPException(status_code=404, detail="岗位未找到")
+
+@app.post("/api/teachers/{teacher_id}/book")
+def book_office_hour(teacher_id: str, slot: str = "", session: dict = Depends(authenticated_session)):
+    return {"status": "ok", "booking": {"teacher_id": teacher_id, "user_id": session_user_id(session), "slot": slot, "time": time.strftime("%Y-%m-%d %H:%M")}}
+
+# ─── Resumes (new) ───
+@app.get("/api/resumes")
+def get_resumes(session: dict = Depends(authenticated_session)):
+    data = read_data("resumes.json", {"resumes": []})
+    return {"resumes": data.get("resumes", [])}
+
+@app.post("/api/resumes")
+def create_resume(name: str, target: str = "", highlights: str = "", session: dict = Depends(authenticated_session)):
+    data = read_data("resumes.json", {"resumes": []})
+    resume = {"id": f"rv_{uuid.uuid4().hex[:10]}", "name": name, "target": target, "highlights": highlights.split(",") if highlights else [], "updated": time.strftime("%Y-%m-%d"), "status": "draft"}
+    data["resumes"].insert(0, resume)
+    write_data("resumes.json", data)
+    return {"status": "ok", "resume": resume}
+
+@app.patch("/api/resumes/{resume_id}")
+def update_resume(resume_id: str, name: str = None, target: str = None, status: str = None):
+    data = read_data("resumes.json", {"resumes": []})
+    resume = next((r for r in data["resumes"] if r.get("id") == resume_id), None)
+    if not resume:
+        raise HTTPException(status_code=404, detail="简历未找到")
+    if name: resume["name"] = name
+    if target: resume["target"] = target
+    if status: resume["status"] = status
+    resume["updated"] = time.strftime("%Y-%m-%d")
+    write_data("resumes.json", data)
+    return {"status": "ok", "resume": resume}
+
+@app.delete("/api/resumes/{resume_id}")
+def delete_resume(resume_id: str):
+    data = read_data("resumes.json", {"resumes": []})
+    data["resumes"] = [r for r in data["resumes"] if r.get("id") != resume_id]
+    write_data("resumes.json", data)
+    return {"status": "ok"}
+
+# ─── Competitions (new) ───
+@app.get("/api/competitions")
+def get_competitions():
+    data = read_data("competitions.json", {"competitions": []})
+    return {"competitions": data.get("competitions", [])}
+
+@app.get("/api/competitions/{comp_id}")
+def get_competition_detail(comp_id: str):
+    data = read_data("competitions.json", {"competitions": []})
+    comp = next((c for c in data.get("competitions", []) if c.get("id") == comp_id), None)
+    if not comp:
+        raise HTTPException(status_code=404, detail="竞赛未找到")
+    return comp
+
+# ─── Events ───
 @app.get("/api/events")
 def list_events(month: str = None):
-    from tools.events import _list_events
-    import json
-    return json.loads(_list_events(month))
+    data = read_data("events.json", {"events": []})
+    events = data.get("events", [])
+    if month:
+        events = [e for e in events if month in e.get("time", "")]
+    return {"events": events}
 
 @app.post("/api/events/register")
 def register_event(event_id: str):
-    from tools.events import _register_event
-    import json
-    return json.loads(_register_event(event_id))
-
-
-@app.delete("/api/events/register")
-def cancel_event_registration(event_id: str):
-    from tools.events import _cancel_event
-    import json
-    result = json.loads(_cancel_event(event_id))
-    if result.get("error"):
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.patch("/api/events/reminder")
-def set_event_reminder(event_id: str, enabled: bool = True):
-    from tools.events import _set_reminder
-    import json
-    result = json.loads(_set_reminder(event_id, enabled))
-    if result.get("error"):
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.get("/api/events/{event_id}/calendar")
-def event_calendar(event_id: str):
-    events = read_data("events.json", {"events": []}).get("events", [])
-    event = next((item for item in events if item.get("id") == event_id and item.get("status", "published") == "published"), None)
+    data = read_data("events.json", {"events": []})
+    event = next((e for e in data.get("events", []) if e.get("id") == event_id), None)
     if not event:
         raise HTTPException(status_code=404, detail="活动未找到")
-    title = str(event.get("title", "校园活动")).replace(",", "\\,")
-    description = str(event.get("description", "")).replace("\n", "\\n").replace(",", "\\,")
-    location = f"{event.get('location', '')}".replace(",", "\\,")
-    stamp = time.strftime("%Y%m%dT%H%M%SZ")
-    match = re.search(r"(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})-(\d{2}):(\d{2})", str(event.get("time", "")))
-    start = f"{match.group(1)}{match.group(2)}{match.group(3)}T{match.group(4)}{match.group(5)}00" if match else ""
-    end = f"{match.group(1)}{match.group(2)}{match.group(3)}T{match.group(6)}{match.group(7)}00" if match else ""
-    ics = "\r\n".join([
-        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SURF Campus//EN", "BEGIN:VEVENT",
-        f"UID:{event_id}@surf-campus", f"DTSTAMP:{stamp}", *( [f"DTSTART:{start}", f"DTEND:{end}"] if start else [] ), f"SUMMARY:{title}", f"LOCATION:{location}", f"DESCRIPTION:{description}",
-        "END:VEVENT", "END:VCALENDAR", "",
-    ])
-    return Response(content=ics, media_type="text/calendar", headers={"Content-Disposition": f'attachment; filename="{event_id}.ics"'})
+    event["registered"] = event.get("registered", 0) + 1
+    event["registered_by_me"] = True
+    write_data("events.json", data)
+    return {"status": "ok", "registered": event["registered"]}
 
-
-def _opportunity_view(item: dict, user_skills: list[str], user_id: str = "u001") -> dict:
-    skills = item.get("skills", [])
-    normalized_user = {str(value).casefold() for value in user_skills}
-    overlap = [skill for skill in skills if str(skill).casefold() in normalized_user]
-    applications = item.get("applications", [])
-    mine = next((value for value in applications if value.get("user_id") == user_id), None)
-    reason = f"匹配 {len(overlap)}/{len(skills)} 项技能：{', '.join(overlap)}" if overlap else "可以补充新技能，当前没有直接匹配项"
-    return {
-        **item,
-        "applications": None,
-        "applications_count": len(applications),
-        "match_score": round(len(overlap) / len(skills) * 100) if skills else 0,
-        "match_reason": reason,
-        "my_application": mine,
-    }
-
-
+# ─── Opportunities ───
 @app.get("/api/opportunities")
-def list_opportunities(keyword: str = "", skill: str = "", user_id: str = ""):
-    user_id = user_id or session_user_id(current_auth_session())
-    opportunities = read_data("opportunities.json", {"opportunities": []}).get("opportunities", [])
-    user = next((value for value in read_data("users.json", {"users": []}).get("users", []) if value.get("id") == user_id), {})
-    user_skills = user.get("tags", [])
-    needle = keyword.strip().casefold()
-    skill_needle = skill.strip().casefold()
-    visible = []
-    for item in opportunities:
-        if item.get("status", "published") != "published":
-            continue
-        searchable = " ".join([item.get("title", ""), item.get("kind", ""), item.get("description", ""), *item.get("skills", []), *item.get("tags", [])]).casefold()
-        if needle and needle not in searchable:
-            continue
-        if skill_needle and not any(skill_needle in str(value).casefold() for value in item.get("skills", [])):
-            continue
-        visible.append(_opportunity_view(item, user_skills, user_id))
-    visible.sort(key=lambda value: (-value["match_score"], value.get("deadline", "")))
-    return {"opportunities": visible, "skills": user_skills, "total": len(visible)}
-
+def list_opportunities(keyword: str = "", skill: str = ""):
+    data = read_data("opportunities.json", {"opportunities": []})
+    opps = data.get("opportunities", [])
+    if keyword:
+        opps = [o for o in opps if keyword.lower() in o.get("title", "").lower() or keyword.lower() in o.get("description", "").lower()]
+    return {"opportunities": opps}
 
 @app.post("/api/opportunities/apply")
-def apply_opportunity(req: OpportunityApplicationCreate, session: dict = Depends(authenticated_session)):
-    user_id = session_user_id(session)
+def apply_opportunity(opportunity_id: str, message: str = "", session: dict = Depends(authenticated_session)):
     data = read_data("opportunities.json", {"opportunities": []})
-    item = next((value for value in data.get("opportunities", []) if value.get("id") == req.opportunity_id), None)
-    if not item or item.get("status", "published") != "published":
-        raise HTTPException(status_code=404, detail="招募不存在或已下线")
-    applications = item.setdefault("applications", [])
-    existing = next((value for value in applications if value.get("user_id") == user_id), None)
-    if existing:
-        return {"status": "ok", "application": existing, "message": "你已经提交过申请"}
-    active_count = sum(value.get("status") in {"pending", "accepted"} for value in applications)
-    if item.get("capacity", 0) and active_count >= item["capacity"]:
-        raise HTTPException(status_code=409, detail="招募名额已满")
-    application = {
-        "id": f"application_{uuid.uuid4().hex[:10]}",
-        "user_id": user_id,
-        "name": "张三",
-        "message": req.message.strip(),
-        "skills": req.skills,
-        "status": "pending",
-        "created_at": time.strftime("%Y-%m-%d %H:%M"),
-    }
-    applications.append(application)
+    opp = next((o for o in data.get("opportunities", []) if o.get("id") == opportunity_id), None)
+    if not opp:
+        raise HTTPException(status_code=404, detail="招募不存在")
+    app = {"id": f"app_{uuid.uuid4().hex[:10]}", "user_id": session_user_id(session), "message": message, "status": "pending", "created_at": time.strftime("%Y-%m-%d %H:%M")}
+    opp.setdefault("applications", []).append(app)
+    opp["applications_count"] = len(opp["applications"])
     write_data("opportunities.json", data)
-    return {"status": "ok", "application": application, "message": "申请已提交，等待招募发起人处理"}
+    return {"status": "ok", "application": app}
 
-
-@app.post("/api/opportunities")
-def create_user_opportunity(req: OpportunityCreate, session: dict = Depends(authenticated_session)):
-    """Every signed-in user can start a team recruitment."""
-    data = read_data("opportunities.json", {"opportunities": []})
-    user_id = session_user_id(session)
-    owner_name = session.get("name") or "校园成员"
-    item = {
-        "id": f"opp_{uuid.uuid4().hex[:10]}",
-        "title": req.title.strip(),
-        "kind": req.kind.strip() or "项目招募",
-        "description": req.description.strip(),
-        "skills": [" ".join(str(value).strip().split())[:32] for value in req.skills if str(value).strip()][:8],
-        "tags": [" ".join(str(value).strip().split())[:24] for value in req.tags if str(value).strip()][:5],
-        "deadline": req.deadline.strip(),
-        "capacity": req.capacity,
-        "owner": owner_name,
-        "owner_id": user_id,
-        "status": "published",
-        "applications": [],
-        "created_at": time.strftime("%Y-%m-%d %H:%M"),
-    }
-    data.setdefault("opportunities", []).insert(0, item)
-    write_data("opportunities.json", data)
-    groups = read_data("groups.json", {"groups": []})
-    groups.setdefault("groups", []).insert(0, {
-        "id": f"group_{item['id']}",
-        "opportunity_id": item["id"],
-        "name": item["title"],
-        "description": item["description"] or "由招募发起人创建的项目群。",
-        "members": [user_id],
-        "messages": [],
-    })
-    write_data("groups.json", groups)
-    return {"status": "ok", "opportunity": _opportunity_view(item, [], user_id), "message": "组队招募已发布"}
-
-@app.get("/api/clubs")
-def list_clubs():
-    from tools.events import _list_clubs
-    import json
-    return json.loads(_list_clubs())
-
-@app.get("/api/clubs/{club_id}")
-def club_info(club_id: str):
-    from tools.events import _club_info
-    import json
-    return json.loads(_club_info(club_id))
-
-# ─── 通讯与消息 ───
-
+# ─── Directory & Messaging ───
 @app.get("/api/directory")
 def search_directory(keyword: str = ""):
-    from tools.search import _search_directory
-    import json
-    return json.loads(_search_directory(keyword))
-
-@app.post("/api/messaging/chat")
-def start_chat(target_id: str, message: str = ""):
-    from tools.messaging import _start_chat
-    import json
-    return json.loads(_start_chat(target_id, message))
-
-@app.post("/api/messaging/send")
-def send_message(chat_id: str, content: str):
-    from tools.messaging import _send_message
-    import json
-    return json.loads(_send_message(chat_id, content))
+    data = user_data()
+    users = data.get("users", [])
+    if keyword:
+        users = [u for u in users if keyword.lower() in u.get("name", "").lower() or keyword.lower() in u.get("department", "").lower()]
+    return {"users": users}
 
 @app.get("/api/messages")
 def get_messages():
-    from tools.messaging import _search_messages
-    import json
-    return json.loads(_search_messages(""))
-
+    return {"conversations": read_data("messages.json", {"conversations": []}).get("conversations", [])}
 
 @app.get("/api/messaging/conversations")
 def list_conversations():
     return {"conversations": read_data("messages.json", {"conversations": []}).get("conversations", [])}
 
+@app.post("/api/messaging/send")
+def send_message(chat_id: str, content: str):
+    data = read_data("messages.json", {"conversations": []})
+    conv = next((c for c in data.get("conversations", []) if c.get("id") == chat_id), None)
+    if not conv:
+        raise HTTPException(status_code=404, detail="会话未找到")
+    msg = {"from": "self", "text": content, "time": time.strftime("%Y-%m-%dT%H:%M")}
+    conv["msgs"].append(msg)
+    conv["lastMsg"] = content
+    conv["time"] = msg["time"]
+    write_data("messages.json", data)
+    return {"status": "ok", "message": msg}
 
 @app.get("/api/groups")
-def list_project_groups():
+def list_groups():
     return {"groups": read_data("groups.json", {"groups": []}).get("groups", [])}
 
+# ─── Notifications ───
+@app.get("/api/notifications")
+def get_notifications(unread_only: bool = False):
+    data = read_data("messages.json", {"notifications": []})
+    notifs = data.get("notifications", [])
+    if unread_only:
+        notifs = [n for n in notifs if not n.get("read", False)]
+    return {"notifications": notifs}
 
-@app.get("/api/profile/preferences")
-def get_profile_preferences(request: Request):
+# ─── Notification Preferences (must be before {notification_id} route) ───
+@app.get("/api/notifications/prefs")
+def get_notif_prefs():
     data = read_data("preferences.json", {})
-    session = auth_session_for_request(request)
-    user_id = session_user_id(session) if (session.get("phone_authenticated") or session.get("email_authenticated")) else "u001"
-    return data.get(user_id, {"sections": list(SECTION_LABELS), "interests": [], "show_context_rail": True, "content_language": "mixed", "theme": "system"})
+    return data.get("notif_prefs", {"urgent": True, "normal": True, "optional": True, "channels": {"in_app": True, "email_urgent": True, "email_normal": False, "email_optional": False, "browser": False}, "dnd": {"enabled": False, "start": "22:00", "end": "07:00"}, "sections": {"topic": True, "qa": True, "like": True, "event": True, "resource": True, "deadline": True}})
 
-
-@app.patch("/api/profile/preferences")
-def update_profile_preferences(req: PreferenceUpdate, request: Request):
-    user_id = session_user_id(authenticated_session(request))
-    allowed = set(SECTION_LABELS)
-    sections = [value for value in req.sections if value in allowed]
-    if not sections:
-        sections = list(SECTION_LABELS)
-    interests = []
-    for value in req.interests:
-        clean = " ".join(str(value).strip().split())[:24]
-        if clean and clean.casefold() not in {item.casefold() for item in interests}:
-            interests.append(clean)
+@app.patch("/api/notifications/prefs")
+def update_notif_prefs(prefs: dict = Body(...)):
     data = read_data("preferences.json", {})
-    language = req.content_language if req.content_language in {"mixed", "zh", "en"} else "mixed"
-    theme = req.theme if req.theme in {"system", "light", "dark"} else "system"
-    data[user_id] = {"sections": sections[:4], "interests": interests[:12], "show_context_rail": req.show_context_rail, "content_language": language, "theme": theme}
+    data["notif_prefs"] = prefs
     write_data("preferences.json", data)
-    return data[user_id]
+    return {"status": "ok", "prefs": prefs}
 
+@app.post("/api/notifications/read")
+def mark_read(notification_id: str = None):
+    data = read_data("messages.json", {"notifications": []})
+    for n in data.get("notifications", []):
+        if n.get("id") == notification_id or notification_id is None:
+            n["read"] = True
+    write_data("messages.json", data)
+    return {"status": "ok"}
 
+@app.patch("/api/notifications/{notification_id}")
+def update_notif_state(notification_id: str, action: str):
+    data = read_data("messages.json", {"notifications": []})
+    n = next((x for x in data.get("notifications", []) if x.get("id") == notification_id), None)
+    if not n:
+        raise HTTPException(status_code=404, detail="通知未找到")
+    if action == "read": n["read"] = True
+    if action == "later": n["saved_for_later"] = not n.get("saved_for_later", False)
+    if action == "processed": n["processed"] = True; n["read"] = True
+    write_data("messages.json", data)
+    return {"status": "ok", "notification": n}
+
+# ─── Search ───
+@app.get("/api/search")
+def global_search(keyword: str = Query(min_length=1), content_type: str = "all", section: str = "all"):
+    needle = keyword.strip().lower()
+    posts = [{"type": "post", **p} for p in read_data("posts.json", {"posts": []}).get("posts", []) if needle in (p.get("title", "") + p.get("content", "")).lower() and p.get("section") != "treehole"]
+    resources = [{"type": "resource", **r} for r in read_data("courses.json", {"resources": []}).get("resources", []) if needle in (r.get("name", "") + r.get("course", "")).lower()]
+    questions = [{"type": "question", **q} for q in read_data("courses.json", {"qa": []}).get("qa", []) if needle in (q.get("question", "") + q.get("course", "")).lower()]
+    events = [{"type": "event", **e} for e in read_data("events.json", {"events": []}).get("events", []) if needle in (e.get("title", "") + e.get("description", "")).lower()]
+    groups = {"posts": posts, "resources": resources, "questions": questions, "events": events}
+    if content_type != "all":
+        key = {"post": "posts", "resource": "resources", "question": "questions", "event": "events"}.get(content_type)
+        groups = {k: v if k == key else [] for k, v in groups.items()}
+    return {"keyword": keyword, "total": sum(len(v) for v in groups.values()), **groups}
+
+@app.get("/api/discover/tags")
+def list_tags():
+    counts = {}
+    for p in read_data("posts.json", {"posts": []}).get("posts", []):
+        for t in p.get("tags", []):
+            counts[t] = counts.get(t, 0) + 1
+    tags = [{"name": k, "count": v} for k, v in sorted(counts.items(), key=lambda x: (-x[1], x[0]))]
+    return {"tags": tags[:20]}
+
+# ─── Profile ───
 @app.get("/api/profile")
 def get_profile(request: Request):
     session = auth_session_for_request(request)
@@ -1638,523 +1037,56 @@ def get_profile(request: Request):
         return public_profile("u001", "校园成员")
     return public_profile(session_user_id(session), session.get("name", "校园成员"))
 
-
 @app.patch("/api/profile")
 def update_profile(req: ProfileUpdate, request: Request):
     session = authenticated_session(request)
     if req.avatar not in AVATAR_OPTIONS:
         raise HTTPException(status_code=400, detail="头像选项无效")
-    birthday = req.birthday.strip()
-    if birthday:
-        try:
-            parsed_birthday = date.fromisoformat(birthday)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="生日格式应为 YYYY-MM-DD") from exc
-        if parsed_birthday > date.today():
-            raise HTTPException(status_code=400, detail="生日不能晚于今天")
-    username = " ".join(req.username.strip().split())
-    if len(username) < 2:
-        raise HTTPException(status_code=400, detail="用户名至少需要 2 个字符")
-    user_id = session_user_id(session)
     data = user_data()
-    profile = next((item for item in data["users"] if item.get("id") == user_id), None)
+    profile = next((p for p in data["users"] if p.get("id") == session_user_id(session)), None)
     if profile is None:
-        profile = profile_defaults(user_id, username)
+        profile = profile_defaults(session_user_id(session), req.username)
         data["users"].append(profile)
-    profile.update({
-        "name": username,
-        "username": username,
-        "bio": req.bio.strip(),
-        "birthday": birthday,
-        "avatar": req.avatar,
-        "profile_complete": True,
-    })
+    profile.update({"name": req.username, "username": req.username, "bio": req.bio, "birthday": req.birthday, "avatar": req.avatar, "profile_complete": True})
     write_data("users.json", data)
-    session["name"] = username
-    save_auth_session(session)
-    return public_profile(user_id, username)
+    save_auth_session({**session, "name": req.username})
+    return public_profile(session_user_id(session), req.username)
 
-
-@app.get("/api/profile/participation")
-def profile_participation():
-    return read_data("participation.json", {}).get("u001", {"points": 0, "records": []})
-
-
-@app.post("/api/groups/{group_id}/messages")
-def post_group_message(group_id: str, content: str = Query(min_length=1, max_length=1000), session: dict = Depends(authenticated_session)):
-    data = read_data("groups.json", {"groups": []})
-    group = next((item for item in data.get("groups", []) if item.get("id") == group_id), None)
-    if not group:
-        raise HTTPException(status_code=404, detail="项目群不存在")
-    user_id = session_user_id(session)
-    if user_id not in group.setdefault("members", []):
-        group["members"].append(user_id)
-    message = {"id": f"group_msg_{uuid.uuid4().hex[:10]}", "sender": session.get("name") or "校园成员", "sender_id": user_id, "content": content.strip(), "time": time.strftime("%Y-%m-%d %H:%M")}
-    group.setdefault("messages", []).append(message)
-    write_data("groups.json", data)
-    return {"status": "ok", "message": message}
-
-# ─── 通知 ───
-
-@app.get("/api/notifications")
-def get_notifications(unread_only: bool = False):
-    from tools.platform import _list_notifications
-    import json
-    return json.loads(_list_notifications(unread_only))
-
-@app.post("/api/notifications/read")
-def mark_notification_read(notification_id: str = None):
-    from tools.platform import _mark_read
-    import json
-    return json.loads(_mark_read(notification_id))
-
-
-@app.patch("/api/notifications/{notification_id}")
-def update_notification_state(notification_id: str, req: NotificationStateAction):
-    if req.action not in {"read", "later", "processed"}:
-        raise HTTPException(status_code=400, detail="不支持的通知状态")
-    data = read_data("messages.json", {"notifications": []})
-    item = next((value for value in data.get("notifications", []) if value.get("id") == notification_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="通知未找到")
-    if req.action == "read":
-        item["read"] = True
-    if req.action == "later":
-        item["saved_for_later"] = not item.get("saved_for_later", False)
-    if req.action == "processed":
-        item["processed"] = True
-        item["read"] = True
-        item["saved_for_later"] = False
-    write_data("messages.json", data)
-    return {"status": "ok", "notification": item}
-
-# ─── 全局搜索 ───
-
-@app.get("/api/search")
-def global_search(
-    keyword: str = Query(min_length=1),
-    content_type: str = "all",
-    section: str = "all",
-):
-    """聚合搜索帖子、课程资料、问答和活动。"""
-    needle = keyword.strip().casefold()
-    posts = []
-    for item in read_data("posts.json", {"posts": []}).get("posts", []):
-        if item.get("status", "published") != "published" or item.get("section") == "treehole":
-            continue
-        searchable = " ".join([
-            item.get("title", ""), item.get("content", ""), item.get("section", ""),
-            SECTION_LABELS.get(item.get("section"), ""), *item.get("tags", []),
-        ]).casefold()
-        if needle in searchable and (section == "all" or item.get("section") == section):
-            posts.append({**item, "type": "post"})
-
-    courses = read_data("courses.json", {})
-    resources = []
-    for index, item in enumerate(courses.get("resources", [])):
-        if item.get("status", "published") != "published":
-            continue
-        searchable = " ".join(str(value) for value in item.values()).casefold()
-        if needle in searchable:
-            resources.append({"id": f"resource_{index}", **item, "type": "resource"})
-    questions = []
-    for index, item in enumerate(courses.get("qa", [])):
-        if item.get("status", "published") != "published":
-            continue
-        searchable = " ".join(str(value) for value in item.values()).casefold()
-        if needle in searchable:
-            questions.append({"id": f"question_{index}", **item, "type": "question"})
-    events = []
-    for item in read_data("events.json", {}).get("events", []):
-        if item.get("status", "published") != "published":
-            continue
-        searchable = " ".join(str(value) for value in item.values()).casefold()
-        if needle in searchable:
-            events.append({**item, "type": "event"})
-
-    groups = {"posts": posts, "resources": resources, "questions": questions, "events": events}
-    if content_type != "all":
-        key = {"post": "posts", "resource": "resources", "question": "questions", "event": "events"}.get(content_type)
-        groups = {name: value if name == key else [] for name, value in groups.items()}
-    related_tags = sorted({tag for post in posts for tag in post.get("tags", [])}, key=str.casefold)[:8]
-    return {"keyword": keyword, "total": sum(len(items) for items in groups.values()), "related_tags": related_tags, **groups}
-
-
-@app.get("/api/discover/tags")
-def list_tags():
-    counts = {}
-    for post in read_data("posts.json", {"posts": []}).get("posts", []):
-        if post.get("status", "published") != "published" or post.get("section") == "treehole":
-            continue
-        for tag in post.get("tags", []):
-            counts[tag] = counts.get(tag, 0) + 1
-    recommended = [
-        {"name": "CSE101", "category": "课程"}, {"name": "期末复习", "category": "议题"},
-        {"name": "AI", "category": "技能"}, {"name": "黑客松", "category": "活动"},
-        {"name": "图书馆", "category": "地点"}, {"name": "羽毛球", "category": "兴趣"},
-    ]
-    for item in recommended:
-        item["count"] = counts.get(item["name"], 0)
-    for name, count in counts.items():
-        if not any(item["name"].casefold() == name.casefold() for item in recommended):
-            recommended.append({"name": name, "category": "自定义", "count": count})
-    return {"tags": sorted(recommended, key=lambda item: (-item["count"], item["name"].casefold()))}
-
-
-@app.get("/api/discover/tags/{tag}")
-def tag_aggregation(tag: str):
-    result = global_search(tag, "all", "all")
-    all_tags = list_tags()["tags"]
-    result["tag"] = tag
-    result["related_tags"] = [item for item in all_tags if item["name"].casefold() != tag.casefold()][:6]
-    return result
-
-
-# ─── 管理端 ───
-
+# ─── Admin (core endpoints) ───
 @app.get("/api/admin/session")
 def admin_session(role: str = Depends(current_admin_role)):
-    return {"authenticated": True, "role": role, "permissions": ["read", *( ["moderate", "publish"] if role in WRITE_ROLES else [])]}
-
-
-@app.get("/api/admin/system/metrics")
-def admin_system_metrics(role: str = Depends(current_admin_role)):
-    """Return bounded, non-sensitive request health data for local operations checks."""
-    with REQUEST_LOG_LOCK:
-        stats = dict(REQUEST_STATS)
-        recent = list(REQUEST_LOG)[:20]
-    request_count = stats["requests"]
-    durations = sorted(item["duration_ms"] for item in recent)
-    p95_index = min(len(durations) - 1, max(0, round(len(durations) * 0.95) - 1)) if durations else 0
-    return {
-        "started_at": stats["started_at"],
-        "requests": request_count,
-        "errors": stats["errors"],
-        "error_rate": round(stats["errors"] / request_count, 4) if request_count else 0,
-        "avg_ms": round(stats["total_ms"] / request_count, 2) if request_count else 0,
-        "max_ms": round(stats["max_ms"], 2),
-        "recent_p95_ms": durations[p95_index] if durations else 0,
-        "recent": recent,
-        "buffer_limit": REQUEST_LOG_LIMIT,
-    }
-
+    return {"authenticated": True, "role": role}
 
 @app.get("/api/admin/overview")
 def admin_overview(role: str = Depends(current_admin_role)):
     posts = read_data("posts.json", {"posts": []}).get("posts", [])
     reports = read_data("reports.json", {"reports": []}).get("reports", [])
-    audits = read_data("audit.json", {"records": []}).get("records", [])
-    return {
-        "pending_posts": sum(item.get("status") == "pending" for item in posts),
-        "published_posts": sum(item.get("status", "published") == "published" for item in posts),
-        "open_reports": sum(item.get("status") == "pending" for item in reports),
-        "audit_records": len(audits),
-    }
-
+    return {"pending_posts": sum(1 for p in posts if p.get("status") == "pending"), "published_posts": sum(1 for p in posts if p.get("status", "published") == "published"), "open_reports": sum(1 for r in reports if r.get("status") == "pending")}
 
 @app.get("/api/admin/posts")
 def admin_posts(status: str = "all", role: str = Depends(current_admin_role)):
     posts = read_data("posts.json", {"posts": []}).get("posts", [])
     if status != "all":
-        posts = [item for item in posts if item.get("status", "published") == status]
-    return {"posts": posts, "total": len(posts)}
-
+        posts = [p for p in posts if p.get("status", "published") == status]
+    return {"posts": posts}
 
 @app.patch("/api/admin/posts/{post_id}")
-def moderate_post(post_id: str, req: ModerationAction, role: str = Depends(moderation_role)):
-    if req.status not in {"published", "hidden", "rejected"}:
-        raise HTTPException(status_code=400, detail="不支持的审核状态")
+def moderate_post(post_id: str, status: str, reason: str = "", role: str = Depends(moderation_role)):
     data = read_data("posts.json", {"posts": []})
-    post = next((item for item in data["posts"] if item.get("id") == post_id), None)
+    post = next((p for p in data["posts"] if p.get("id") == post_id), None)
     if not post:
         raise HTTPException(status_code=404, detail="帖子未找到")
-    post["status"] = req.status
-    post["moderation_note"] = req.reason.strip()
-    post["moderated_at"] = time.strftime("%Y-%m-%d %H:%M")
+    post["status"] = status
+    post["moderation_note"] = reason
     write_data("posts.json", data)
-    audit(role, f"post.{req.status}", "post", post_id, req.reason)
+    audit(role, f"post.{status}", "post", post_id, reason)
     return {"status": "ok", "post": post}
 
-
-@app.get("/api/admin/reports")
-def admin_reports(role: str = Depends(current_admin_role)):
-    return read_data("reports.json", {"reports": []})
-
-
-@app.patch("/api/admin/reports/{report_id}")
-def resolve_report(report_id: str, req: ModerationAction, role: str = Depends(moderation_role)):
-    data = read_data("reports.json", {"reports": []})
-    report = next((item for item in data["reports"] if item.get("id") == report_id), None)
-    if not report:
-        raise HTTPException(status_code=404, detail="举报未找到")
-    report["status"] = "resolved"
-    report["resolution"] = req.reason.strip() or req.status
-    write_data("reports.json", data)
-    audit(role, "report.resolve", "report", report_id, report["resolution"])
-    return {"status": "ok", "report": report}
-
-
-@app.get("/api/admin/audit")
-def admin_audit(role: str = Depends(current_admin_role)):
-    return read_data("audit.json", {"records": []})
-
-
-@app.get("/api/admin/tags")
-def admin_tags(role: str = Depends(current_admin_role)):
-    return list_tags()
-
-
-@app.get("/api/admin/learning")
-def admin_learning(role: str = Depends(current_admin_role)):
-    data = read_data("courses.json", {"resources": [], "qa": []})
-    return {"resources": data.get("resources", []), "questions": data.get("qa", [])}
-
-
-@app.post("/api/admin/resources")
-def create_admin_resource(req: ResourceCreate, role: str = Depends(learning_write_role)):
-    data = read_data("courses.json", {"resources": []})
-    item = {
-        "id": f"resource_{uuid.uuid4().hex[:10]}", **req.model_dump(),
-        "status": "published", "created_at": time.strftime("%Y-%m-%d %H:%M"),
-    }
-    data.setdefault("resources", []).insert(0, item)
-    write_data("courses.json", data)
-    audit(role, "resource.publish", "resource", item["id"], item["name"])
-    return {"status": "ok", "resource": item}
-
-
-@app.post("/api/admin/resource-files")
-def upload_admin_resource_file(req: MediaUpload, role: str = Depends(learning_write_role)):
-    allowed = {
-        "application/pdf": ".pdf", "text/plain": ".txt", "text/markdown": ".md",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
-    }
-    if req.mime not in allowed:
-        raise HTTPException(status_code=415, detail="P0 仅支持 PDF、TXT、Markdown、DOCX 和 PPTX")
-    try:
-        payload = base64.b64decode(req.data.split(",", 1)[-1], validate=True)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="资料文件数据无效") from exc
-    if not payload or len(payload) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="资料文件为空或超过 20MB")
-    file_id = f"resource_file_{uuid.uuid4().hex[:12]}"
-    filename = f"{file_id}{allowed[req.mime]}"
-    (RESOURCE_FILE_DIR / filename).write_bytes(payload)
-    audit(role, "resource_file.upload", "resource_file", file_id, req.name)
-    return {
-        "id": file_id, "url": f"/resource-files/{filename}",
-        "name": re.sub(r"[^\w.\- ]", "", req.name)[:160] or filename,
-        "mime": req.mime, "size": len(payload),
-    }
-
-
-@app.patch("/api/admin/resources/{resource_id}")
-def update_admin_resource(resource_id: str, req: ContentStatusAction, role: str = Depends(learning_write_role)):
-    if req.status not in {"published", "hidden"}:
-        raise HTTPException(status_code=400, detail="不支持的资料状态")
-    data = read_data("courses.json", {"resources": []})
-    item = next((value for value in data.get("resources", []) if value.get("id") == resource_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="资料未找到")
-    item["status"] = req.status
-    item["moderation_note"] = req.reason
-    write_data("courses.json", data)
-    audit(role, f"resource.{req.status}", "resource", resource_id, req.reason)
-    return {"status": "ok", "resource": item}
-
-
-@app.post("/api/admin/questions/{question_id}/answers")
-def create_admin_answer(question_id: str, req: AnswerCreate, role: str = Depends(learning_write_role)):
-    data = read_data("courses.json", {"qa": []})
-    question = next((value for value in data.get("qa", []) if value.get("id") == question_id), None)
-    if not question:
-        raise HTTPException(status_code=404, detail="问题未找到")
-    answer = {
-        "id": f"answer_{uuid.uuid4().hex[:10]}", "content": req.content.strip(),
-        "author": "课程团队", "role": req.role_label, "status": "published",
-        "created_at": time.strftime("%Y-%m-%d %H:%M"),
-    }
-    previous_count = int(question.get("answers", 0))
-    question.setdefault("answers_detail", []).append(answer)
-    question["answers"] = max(previous_count + 1, len(question["answers_detail"]))
-    question["status"] = "published"
-    write_data("courses.json", data)
-    audit(role, "question.answer", "question", question_id, req.content[:100])
-    return {"status": "ok", "answer": answer, "question": question}
-
-
-@app.post("/api/courses/qa/{question_id}/accept")
-def accept_course_answer(question_id: str, answer_id: str):
-    data = read_data("courses.json", {"qa": []})
-    question = next((value for value in data.get("qa", []) if value.get("id") == question_id), None)
-    if not question:
-        raise HTTPException(status_code=404, detail="问题未找到")
-    answer = next((value for value in question.get("answers_detail", []) if value.get("id") == answer_id), None)
-    if not answer:
-        raise HTTPException(status_code=404, detail="回答未找到")
-    for value in question.get("answers_detail", []):
-        value["accepted"] = value.get("id") == answer_id
-    question["accepted_answer_id"] = answer_id
-    write_data("courses.json", data)
-    return {"status": "ok", "question": question}
-
-
-@app.get("/api/admin/events")
-def admin_events(role: str = Depends(current_admin_role)):
-    return {"events": read_data("events.json", {"events": []}).get("events", [])}
-
-
-@app.post("/api/admin/events")
-def create_admin_event(req: EventCreate, role: str = Depends(event_write_role)):
-    data = read_data("events.json", {"events": [], "clubs": []})
-    item = {
-        "id": f"evt_{uuid.uuid4().hex[:10]}", **req.model_dump(), "registered": 0,
-        "registrations": [], "status": "published", "created_at": time.strftime("%Y-%m-%d %H:%M"),
-    }
-    data.setdefault("events", []).insert(0, item)
-    write_data("events.json", data)
-    audit(role, "event.publish", "event", item["id"], item["title"])
-    return {"status": "ok", "event": item}
-
-
-@app.patch("/api/admin/events/{event_id}")
-def update_admin_event(event_id: str, req: ContentStatusAction, role: str = Depends(event_write_role)):
-    if req.status not in {"published", "hidden"}:
-        raise HTTPException(status_code=400, detail="不支持的活动状态")
-    data = read_data("events.json", {"events": []})
-    item = next((value for value in data.get("events", []) if value.get("id") == event_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="活动未找到")
-    item["status"] = req.status
-    item["moderation_note"] = req.reason
-    write_data("events.json", data)
-    audit(role, f"event.{req.status}", "event", event_id, req.reason)
-    return {"status": "ok", "event": item}
-
-
-@app.delete("/api/admin/events/{event_id}/registrations/{user_id}")
-def remove_event_registration(event_id: str, user_id: str, role: str = Depends(event_write_role)):
-    data = read_data("events.json", {"events": []})
-    item = next((value for value in data.get("events", []) if value.get("id") == event_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="活动未找到")
-    registrations = item.setdefault("registrations", [])
-    before = len(registrations)
-    item["registrations"] = [value for value in registrations if value.get("user_id") != user_id]
-    if len(item["registrations"]) == before:
-        raise HTTPException(status_code=404, detail="报名记录未找到")
-    item["registered"] = max(0, int(item.get("registered", 0)) - 1)
-    write_data("events.json", data)
-    audit(role, "event.registration.remove", "event", event_id, user_id)
-    return {"status": "ok", "event": item}
-
-
-@app.get("/api/admin/opportunities")
-def admin_opportunities(role: str = Depends(current_admin_role)):
-    return {"opportunities": read_data("opportunities.json", {"opportunities": []}).get("opportunities", [])}
-
-
-@app.post("/api/admin/opportunities")
-def create_admin_opportunity(req: OpportunityCreate, role: str = Depends(opportunity_write_role)):
-    data = read_data("opportunities.json", {"opportunities": []})
-    item = {
-        "id": f"opp_{uuid.uuid4().hex[:10]}", **req.model_dump(), "owner": "校园项目发起人",
-        "status": "published", "applications": [], "created_at": time.strftime("%Y-%m-%d %H:%M"),
-    }
-    data.setdefault("opportunities", []).insert(0, item)
-    write_data("opportunities.json", data)
-    audit(role, "opportunity.publish", "opportunity", item["id"], item["title"])
-    return {"status": "ok", "opportunity": item}
-
-
-@app.patch("/api/admin/opportunities/{opportunity_id}")
-def update_admin_opportunity(opportunity_id: str, req: ContentStatusAction, role: str = Depends(opportunity_write_role)):
-    if req.status not in {"published", "hidden"}:
-        raise HTTPException(status_code=400, detail="不支持的招募状态")
-    data = read_data("opportunities.json", {"opportunities": []})
-    item = next((value for value in data.get("opportunities", []) if value.get("id") == opportunity_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="招募未找到")
-    item["status"] = req.status
-    item["moderation_note"] = req.reason
-    write_data("opportunities.json", data)
-    audit(role, f"opportunity.{req.status}", "opportunity", opportunity_id, req.reason)
-    return {"status": "ok", "opportunity": item}
-
-
-@app.patch("/api/admin/opportunities/{opportunity_id}/applications/{application_id}")
-def update_opportunity_application(opportunity_id: str, application_id: str, req: OpportunityApplicationAction, role: str = Depends(opportunity_write_role)):
-    if req.status not in {"pending", "accepted", "rejected"}:
-        raise HTTPException(status_code=400, detail="不支持的申请状态")
-    data = read_data("opportunities.json", {"opportunities": []})
-    item = next((value for value in data.get("opportunities", []) if value.get("id") == opportunity_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="招募未找到")
-    application = next((value for value in item.get("applications", []) if value.get("id") == application_id), None)
-    if not application:
-        raise HTTPException(status_code=404, detail="申请未找到")
-    application["status"] = req.status
-    application["moderation_note"] = req.reason
-    write_data("opportunities.json", data)
-    audit(role, f"opportunity.application.{req.status}", "application", application_id, req.reason)
-    return {"status": "ok", "application": application, "opportunity": item}
-
-
-@app.get("/api/admin/notifications")
-def admin_notifications(role: str = Depends(current_admin_role)):
-    return {"notifications": read_data("messages.json", {}).get("notifications", [])}
-
-
-@app.post("/api/admin/notifications")
-def create_admin_notification(req: AdminNotificationCreate, role: str = Depends(moderation_role)):
-    data = read_data("messages.json", {"conversations": [], "notifications": []})
-    item = {
-        "id": f"notif_{uuid.uuid4().hex[:10]}", "content": req.content.strip(),
-        "time": time.strftime("%Y-%m-%d %H:%M"), "read": False,
-        "priority": req.priority if req.priority in {"normal", "important"} else "normal",
-        "published": req.published,
-        "status": "published" if req.published else "draft",
-        "pinned": req.pinned,
-    }
-    data.setdefault("notifications", []).insert(0, item)
-    write_data("messages.json", data)
-    audit(role, "notification.publish", "notification", item["id"], item["content"])
-    return {"status": "ok", "notification": item}
-
-
-@app.patch("/api/admin/notifications/{notification_id}")
-def update_admin_notification(notification_id: str, req: AdminNotificationAction, role: str = Depends(moderation_role)):
-    if req.action not in {"pin", "unpin", "withdraw", "publish"}:
-        raise HTTPException(status_code=400, detail="不支持的通知操作")
-    data = read_data("messages.json", {"notifications": []})
-    item = next((value for value in data.get("notifications", []) if value.get("id") == notification_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="通知未找到")
-    if req.action in {"pin", "unpin"}:
-        item["pinned"] = req.action == "pin"
-    if req.action in {"withdraw", "publish"}:
-        item["status"] = "withdrawn" if req.action == "withdraw" else "published"
-        item["published"] = req.action == "publish"
-        if req.action == "withdraw":
-            item["published"] = False
-    write_data("messages.json", data)
-    audit(role, f"notification.{req.action}", "notification", notification_id, req.reason)
-    return {"status": "ok", "notification": item}
-
-# ─── 静态文件挂载（必须放在所有路由之后）───
-
+# ─── Static files (must be last) ───
 app.mount("/media", StaticFiles(directory=UPLOAD_DIR), name="media")
 app.mount("/resource-files", StaticFiles(directory=RESOURCE_FILE_DIR), name="resource-files")
-
-_admin_dir = os.path.join(os.path.dirname(__file__), "..", "admin")
-if os.path.isdir(_admin_dir):
-    app.mount("/admin", StaticFiles(directory=_admin_dir, html=True), name="admin")
-
 _frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/", StaticFiles(directory=_frontend_dir), name="frontend")
-
-# ─── 启动 ───
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8000"))
