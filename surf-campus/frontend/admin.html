@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理后台 · SURF Campus</title>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <style>
+    :root {
+      --canvas: #f7f4ec;
+      --surface: #fffdf7;
+      --line: #e6e0d2;
+      --ink: #1f2a24;
+      --ink-2: #4c5a52;
+      --ink-3: #8b968e;
+      --accent: #2f6b4f;
+      --accent-soft: #e7f0ea;
+      --gold: #a8863a;
+      --gold-soft: #f6efdd;
+      --red: #b3452f;
+      --red-soft: #f9e9e4;
+      --green-soft: #e7f0ea;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--canvas);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+    .shell { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
+
+    header.topbar {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      margin-bottom: 22px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+    .brand-mark {
+      width: 38px; height: 38px; border-radius: 12px; background: var(--accent);
+      color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 18px;
+    }
+    .brand-text strong { font-size: 16px; letter-spacing: .5px; }
+    .brand-text small { display: block; color: var(--ink-3); font-size: 11px; letter-spacing: 2px; }
+    .topbar .spacer { flex: 1; }
+    .role-box { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+    select, button {
+      font-family: inherit; font-size: 13px; border: 1px solid var(--line);
+      background: var(--surface); color: var(--ink); border-radius: 9px; padding: 7px 12px;
+      cursor: pointer;
+    }
+    select:focus, button:focus { outline: 2px solid var(--accent-soft); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-ghost { background: transparent; }
+    .btn-gold { background: var(--gold); border-color: var(--gold); color: #fff; }
+    .btn-red { background: var(--red); border-color: var(--red); color: #fff; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .stat-card .num { font-size: 28px; font-weight: 700; color: var(--accent); }
+    .stat-card.gold .num { color: var(--gold); }
+    .stat-card.red .num { color: var(--red); }
+    .stat-card .lbl { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+    .tab {
+      border: none; background: transparent; padding: 8px 14px; border-radius: 9px;
+      color: var(--ink-2); font-weight: 600;
+    }
+    .tab.active { background: var(--accent-soft); color: var(--accent); }
+    .tab:hover { background: var(--accent-soft); }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+      padding: 16px 18px; margin-bottom: 12px;
+    }
+    .card h3 { font-size: 14px; margin-bottom: 4px; }
+    .card .meta { font-size: 12px; color: var(--ink-3); display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+    .card .content { font-size: 13px; color: var(--ink-2); line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+    .card .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+    .badge { display: inline-block; font-size: 11px; padding: 2px 9px; border-radius: 99px; font-weight: 600; }
+    .badge-pending { background: var(--gold-soft); color: var(--gold); }
+    .badge-published { background: var(--green-soft); color: var(--accent); }
+    .badge-rejected { background: var(--red-soft); color: var(--red); }
+    .badge-resolved { background: var(--green-soft); color: var(--accent); }
+    .badge-other { background: #efece4; color: var(--ink-3); }
+
+    table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.list th { text-align: left; color: var(--ink-3); font-weight: 600; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    table.list td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink-2); vertical-align: top; }
+    table.list tr:last-child td { border-bottom: none; }
+    .table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px; overflow-x: auto; }
+
+    .empty { text-align: center; color: var(--ink-3); font-size: 13px; padding: 40px 0; }
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: var(--ink); color: #fff; font-size: 13px; padding: 10px 18px;
+      border-radius: 99px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 99;
+    }
+    .toast.show { opacity: .95; }
+    .hint { font-size: 12px; color: var(--ink-3); margin-bottom: 14px; line-height: 1.7; }
+    a.back-link { font-size: 12px; color: var(--ink-3); text-decoration: none; }
+    a.back-link:hover { color: var(--accent); }
+    .status-note { font-size: 12px; color: var(--gold); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">S</span>
+        <span class="brand-text"><strong>SURF Campus</strong><small>管理后台</small></span>
+      </a>
+      <span class="spacer"></span>
+      <div class="role-box">
+        <label for="role-select">管理身份</label>
+        <select id="role-select">
+          <option value="platform_admin" selected>平台管理员（读写）</option>
+          <option value="moderator">内容审核员（读写）</option>
+          <option value="teacher">教师（只读）</option>
+          <option value="organizer">活动组织者（只读）</option>
+        </select>
+      </div>
+      <button class="btn-primary" id="refresh-btn">刷新数据</button>
+    </header>
+    <a class="back-link" href="/">← 返回 SURF Campus 主站</a>
+    <div style="height:14px"></div>
+
+    <div class="stats" id="stats"></div>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="pending">待审核帖子</button>
+      <button class="tab" data-tab="reports">举报处理</button>
+      <button class="tab" data-tab="logins">登录日志</button>
+      <button class="tab" data-tab="audit">操作日志</button>
+      <button class="tab" data-tab="users">注册用户</button>
+    </nav>
+
+    <div class="hint" id="tab-hint"></div>
+    <section id="panel"></section>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    var state = { tab: 'pending' };
+    var HINTS = {
+      pending: '用户发布的帖子默认直接上线；被标记为“待审核”的帖子会出现在这里，通过后所有人可见，拒绝后仅作者自己可见。',
+      reports: '每次用户点“举报”都会记录在这里（谁举报的、举报原因、被举报的帖子）。处理完点“标记已处理”。注：旧数据可能没有举报人字段。',
+      logins: '每一次成功登录（手机验证码 / 演示验证码 / 邮箱）都会记录：谁、什么时间、用什么方式。最多保留最近 500 条。',
+      audit: '管理员的审核操作记录：谁在什么时间通过/拒绝了哪个帖子、处理了哪个举报。',
+      users: '所有在平台上完成过资料设置的账号（手机号或邮箱登录后即建档）。'
+    };
+
+    function $(id) { return document.getElementById(id); }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function role() { return $('role-select').value; }
+    function api(path, opts) {
+      opts = opts || {};
+      opts.headers = Object.assign({ 'X-Admin-Role': role() }, opts.headers || {});
+      return fetch(path, opts).then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (e) {
+          throw new Error(e.detail || ('HTTP ' + r.status));
+        });
+        return r.json();
+      });
+    }
+    function toast(msg) {
+      var t = $('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(t._h);
+      t._h = setTimeout(function () { t.classList.remove('show'); }, 2200);
+    }
+    function canWrite() { return role() === 'platform_admin' || role() === 'moderator'; }
+
+    function renderStats(ov) {
+      $('stats').innerHTML =
+        '<div class="stat-card"><div class="num">' + ov.pending_posts + '</div><div class="lbl">待审核帖子</div></div>' +
+        '<div class="stat-card"><div class="num">' + ov.published_posts + '</div><div class="lbl">已上线帖子</div></div>' +
+        '<div class="stat-card red"><div class="num">' + ov.open_reports + '</div><div class="lbl">待处理举报</div></div>';
+    }
+
+    function badge(status) {
+      var map = { pending: '待处理', published: '已上线', rejected: '已拒绝', resolved: '已处理' };
+      return '<span class="badge badge-' + esc(status) + '">' + esc(map[status] || status || '未知') + '</span>';
+    }
+
+    function renderPending(posts) {
+      if (!posts.length) return '<div class="empty">暂无待审核帖子 🎉</div>';
+      return posts.map(function (p) {
+        return '<div class="card">' +
+          '<h3>' + esc(p.title || '(无标题)') + '</h3>' +
+          '<div class="meta"><span>作者：' + esc(p.author) + '</span><span>版块：' + esc(p.section) + '</span><span>' + esc(p.time) + '</span>' + badge(p.status) + '</div>' +
+          '<div class="content">' + esc((p.content || '').slice(0, 300)) + '</div>' +
+          '<div class="actions">' +
+            '<button class="btn-primary" data-approve="' + esc(p.id) + '">✓ 通过上线</button>' +
+            '<button class="btn-red" data-reject="' + esc(p.id) + '">✕ 拒绝</button>' +
+          '</div></div>';
+      }).join('');
+    }
+
+    function renderReports(reports) {
+      if (!reports.length) return '<div class="empty">暂无举报记录</div>';
+      return reports.map(function (r) {
+        return '<div class="card">' +
+          '<h3>' + esc(r.post_title) + '</h3>' +
+          '<div class="meta">' +
+            '<span>举报人：' + esc(r.reporter || '(未记录)') + '</span>' +
+            '<span>帖子作者：' + esc(r.post_author || '-') + '</span>' +
+            '<span>版块：' + esc(r.post_section || '-') + '</span>' +
+            '<span>举报时间：' + esc(r.created_at) + '</span>' +
+            badge(r.status) +
+          '</div>' +
+          '<div class="content"><strong style="color:var(--gold)">举报原因：</strong>' + esc(r.reason) + '</div>' +
+          (r.post_content ? '<div class="content" style="margin-top:6px;color:var(--ink-3)">帖子内容：' + esc(r.post_content) + '…</div>' : '') +
+          (r.note ? '<div class="status-note">处理备注：' + esc(r.note) + (r.resolved_at ? '（' + esc(r.resolved_at) + '）' : '') + '</div>' : '') +
+          '<div class="actions">' +
+            (r.status === 'pending'
+              ? '<button class="btn-gold" data-resolve="' + esc(r.id) + '">标记已处理</button><button class="btn-red" data-dismiss="' + esc(r.id) + '">驳回举报</button>'
+              : '<span style="font-size:12px;color:var(--ink-3)">已处理' + (r.resolved_at ? ' · ' + esc(r.resolved_at) : '') + '</span>') +
+          '</div></div>';
+      }).join('');
+    }
+
+    function renderLogins(logs) {
+      if (!logs.length) return '<div class="empty">暂无登录记录（部署后新产生的登录才会记录）</div>';
+      var rows = logs.map(function (l) {
+        return '<tr><td>' + esc(l.time) + '</td><td>' + esc(l.name || '-') + '</td><td style="font-family:monospace;font-size:12px">' + esc(l.user_id || '-') + '</td><td>' + esc(l.method || '-') + '</td><td>' + esc(l.detail || '') + '</td></tr>';
+      }).join('');
+      return '<div class="table-card"><table class="list"><thead><tr><th>时间</th><th>用户</th><th>账号 ID</th><th>方式</th><th>详情</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+
+    function renderAudit(records) {
+      if (!records.length) return '<div class="empty">暂无管理操作记录</div>';
+      var rows = records.map(function (r) {
+        return '<tr><td>' + esc(r.time) + '</td><td>' + esc(r.actor_role) + '</td><td>' + esc(r.action) + '</td><td>' + esc(r.target_type) + ' / ' + esc(r.target_id) + '</td><td>' + esc(r.detail || '') + '</td></tr>';
+      }).join('');
+      return '<div class="table-card"><table class="list"><thead><tr><th>时间</th><th>角色</th><th>操作</th><th>对象</th><th>备注</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+
+    function renderUsers(users) {
+      if (!users.length) return '<div class="empty">暂无注册用户</div>';
+      var rows = users.map(function (u) {
+        return '<tr><td>' + esc(u.name || '-') + '</td><td style="font-family:monospace;font-size:12px">' + esc(u.id || '-') + '</td><td>' + esc(u.email || '-') + '</td><td>' + esc(u.avatar || '-') + '</td><td>' + (u.profile_complete ? '✅ 已完成' : '… 未完成') + '</td><td>' + esc((u.bio || '').slice(0, 40)) + '</td></tr>';
+      }).join('');
+      return '<div class="table-card"><table class="list"><thead><tr><th>昵称</th><th>账号 ID</th><th>邮箱</th><th>头像</th><th>资料</th><th>简介</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+
+    function loadTab() {
+      $('tab-hint').textContent = HINTS[state.tab] || '';
+      var panel = $('panel');
+      panel.innerHTML = '<div class="empty">加载中…</div>';
+      var p;
+      if (state.tab === 'pending') p = api('/api/admin/posts?status=pending').then(function (d) { return renderPending(d.posts || []); });
+      else if (state.tab === 'reports') p = api('/api/admin/reports').then(function (d) { return renderReports(d.reports || []); });
+      else if (state.tab === 'logins') p = api('/api/admin/logins').then(function (d) { return renderLogins(d.logs || []); });
+      else if (state.tab === 'audit') p = api('/api/admin/audit').then(function (d) { return renderAudit(d.records || []); });
+      else p = api('/api/admin/users').then(function (d) { return renderUsers(d.users || []); });
+      p.then(function (html) { panel.innerHTML = html; })
+       .catch(function (e) { panel.innerHTML = '<div class="empty">加载失败：' + esc(e.message) + '</div>'; });
+    }
+
+    function refreshAll() {
+      api('/api/admin/overview').then(renderStats).catch(function () {
+        $('stats').innerHTML = '<div class="stat-card"><div class="num" style="font-size:16px">无法加载</div><div class="lbl">请检查服务状态</div></div>';
+      });
+      loadTab();
+    }
+
+    document.querySelectorAll('.tab').forEach(function (t) {
+      t.addEventListener('click', function () {
+        document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
+        t.classList.add('active');
+        state.tab = t.dataset.tab;
+        loadTab();
+      });
+    });
+    $('role-select').addEventListener('change', refreshAll);
+    $('refresh-btn').addEventListener('click', function () { refreshAll(); toast('已刷新'); });
+
+    $('panel').addEventListener('click', function (ev) {
+      var btn = ev.target.closest('button');
+      if (!btn) return;
+      var approve = btn.dataset.approve, reject = btn.dataset.reject, resolve = btn.dataset.resolve, dismiss = btn.dataset.dismiss;
+      if (!canWrite()) { toast('当前角色只读，请切换为平台管理员或审核员'); return; }
+      if (approve) {
+        api('/api/admin/posts/' + approve + '?status=published', { method: 'PATCH' })
+          .then(function () { toast('已通过上线'); refreshAll(); })
+          .catch(function (e) { toast('失败：' + e.message); });
+      } else if (reject) {
+        api('/api/admin/posts/' + reject + '?status=rejected&reason=' + encodeURIComponent('内容不符合社区规范'), { method: 'PATCH' })
+          .then(function () { toast('已拒绝'); refreshAll(); })
+          .catch(function (e) { toast('失败：' + e.message); });
+      } else if (resolve) {
+        api('/api/admin/reports/' + resolve + '?status=resolved', { method: 'PATCH' })
+          .then(function () { toast('已标记处理'); refreshAll(); })
+          .catch(function (e) { toast('失败：' + e.message); });
+      } else if (dismiss) {
+        api('/api/admin/reports/' + dismiss + '?status=dismissed&note=' + encodeURIComponent('驳回：举报不成立'), { method: 'PATCH' })
+          .then(function () { toast('已驳回举报'); refreshAll(); })
+          .catch(function (e) { toast('失败：' + e.message); });
+      }
+    });
+
+    refreshAll();
+  </script>
+</body>
+</html>
