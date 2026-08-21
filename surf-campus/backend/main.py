@@ -62,6 +62,13 @@ def audit(actor_role, action, target_type, target_id, detail=""):
     data["records"].insert(0, {"id": f"audit_{uuid.uuid4().hex[:10]}", "time": time.strftime("%Y-%m-%d %H:%M:%S"), "actor_role": actor_role, "action": action, "target_type": target_type, "target_id": target_id, "detail": detail})
     write_data("audit.json", data)
 
+def log_login(user_id, name, method, detail=""):
+    """记录每次成功登录（谁、何时、用什么方式），供管理端查看。"""
+    data = read_data("login_logs.json", {"logs": []})
+    data["logs"].insert(0, {"id": f"login_{uuid.uuid4().hex[:10]}", "time": time.strftime("%Y-%m-%d %H:%M:%S"), "user_id": user_id or "", "name": name or "", "method": method, "detail": detail})
+    data["logs"] = data["logs"][:500]
+    write_data("login_logs.json", data)
+
 def current_admin_role(x_admin_role: str = Header(default="student")) -> str:
     if x_admin_role not in ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="当前角色无权访问管理端")
@@ -406,7 +413,9 @@ def login_by_phone(req: PhoneLoginRequest, request: Request):
     dev_phone = re.sub(r"\D", "", os.environ.get("SURF_DEV_PHONE", "19155147738"))
     dev_code = os.environ.get("SURF_MOCK_SMS_CODE", "123456")
     if dev_fixed_phone_login_enabled(request) and secrets.compare_digest(digits, dev_phone) and secrets.compare_digest(req.code.strip(), dev_code):
-        return {**dev_auth_session(), "can_publish": True, "identity_level": "campus", "dev_bypass": True}
+        s = dev_auth_session()
+        log_login(s.get("user_id", ""), s.get("name", ""), "phone", f"固定演示号 {dev_phone[:3]}****{dev_phone[-4:]}")
+        return {**s, "can_publish": True, "identity_level": "campus", "dev_bypass": True}
     # Universal mock-code bypass: accept SURF_MOCK_SMS_CODE (default 123456) for ANY phone number,
     # no need to click "获取验证码" first.
     mock_code = os.environ.get("SURF_MOCK_SMS_CODE", "123456")
@@ -414,11 +423,13 @@ def login_by_phone(req: PhoneLoginRequest, request: Request):
         session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
         persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
         save_auth_session(session)
+        log_login(session["user_id"], session["name"], "phone", f"演示验证码登录 {session['phone_masked']}")
         return auth_response(session)
     consume_verification_code("sms", digits, req.code)
     session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
     persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
     save_auth_session(session)
+    log_login(session["user_id"], session["name"], "phone", f"短信验证码登录 {session['phone_masked']}")
     return auth_response(session)
 
 @app.post("/api/auth/email/code")
@@ -439,6 +450,7 @@ def login_by_email(req: EmailLoginRequest):
     session = {"phone_authenticated": True, "email_authenticated": True, "phone_masked": "", "campus_verified": is_campus, "user_id": f"email_{name}", "name": name.replace(".", " ").title(), "campus_account": email if is_campus else "", "email": email}
     persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
     save_auth_session(session)
+    log_login(session["user_id"], session["name"], "email", f"邮箱密码登录 {email}")
     return auth_response(session)
 
 @app.post("/api/auth/register")
@@ -454,6 +466,7 @@ def register_by_email(req: EmailRegisterRequest):
     persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
     data["session"] = session
     write_data("auth.json", data)
+    log_login(session["user_id"], session["name"], "email", f"邮箱注册 {email}")
     return auth_response(session)
 
 @app.post("/api/auth/campus-email/code")
@@ -666,9 +679,12 @@ def collect_post(post_id: str, tag: str = ""):
     return {"status": "ok", "collected": True}
 
 @app.post("/api/community/report")
-def report_post(post_id: str, reason: str = ""):
+def report_post(post_id: str, reason: str = "", request: Request = None):
+    session = auth_session_for_request(request) if request else {}
+    reporter_id = session.get("user_id", "")
+    reporter = session.get("name") or ("未登录用户" if not reporter_id else reporter_id)
     data = read_data("reports.json", {"reports": []})
-    data["reports"].insert(0, {"id": f"report_{uuid.uuid4().hex[:10]}", "post_id": post_id, "reason": reason.strip() or "未说明原因", "status": "pending", "created_at": time.strftime("%Y-%m-%d %H:%M")})
+    data["reports"].insert(0, {"id": f"report_{uuid.uuid4().hex[:10]}", "post_id": post_id, "reason": reason.strip() or "未说明原因", "reporter": reporter, "reporter_id": reporter_id, "status": "pending", "created_at": time.strftime("%Y-%m-%d %H:%M")})
     write_data("reports.json", data)
     return {"status": "ok", "message": "举报已提交"}
 
@@ -1132,6 +1148,47 @@ def moderate_post(post_id: str, status: str, reason: str = "", role: str = Depen
     write_data("posts.json", data)
     audit(role, f"post.{status}", "post", post_id, reason)
     return {"status": "ok", "post": post}
+
+@app.get("/api/admin/reports")
+def admin_reports(role: str = Depends(current_admin_role)):
+    reports = read_data("reports.json", {"reports": []}).get("reports", [])
+    posts = read_data("posts.json", {"posts": []}).get("posts", [])
+    post_map = {p.get("id"): p for p in posts}
+    out = []
+    for r in reports:
+        p = post_map.get(r.get("post_id"), {})
+        out.append({**r, "post_title": p.get("title") or "(无标题)", "post_content": (p.get("content") or "")[:120], "post_author": p.get("author", ""), "post_section": SECTION_LABELS.get(p.get("section", ""), p.get("section", "")), "post_status": p.get("status", "已不存在"), "post_time": p.get("time", "")})
+    return {"reports": out}
+
+@app.patch("/api/admin/reports/{report_id}")
+def resolve_report(report_id: str, status: str = "resolved", note: str = "", role: str = Depends(moderation_role)):
+    data = read_data("reports.json", {"reports": []})
+    r = next((x for x in data.get("reports", []) if x.get("id") == report_id), None)
+    if not r:
+        raise HTTPException(status_code=404, detail="举报记录未找到")
+    r["status"] = status
+    if note:
+        r["note"] = note
+    r["resolved_at"] = time.strftime("%Y-%m-%d %H:%M")
+    write_data("reports.json", data)
+    audit(role, f"report.{status}", "report", report_id, note)
+    return {"status": "ok", "report": r}
+
+@app.get("/api/admin/logins")
+def admin_logins(role: str = Depends(current_admin_role)):
+    logs = read_data("login_logs.json", {"logs": []}).get("logs", [])
+    return {"logs": logs[:200]}
+
+@app.get("/api/admin/audit")
+def admin_audit(role: str = Depends(current_admin_role)):
+    records = read_data("audit.json", {"records": []}).get("records", [])
+    return {"records": records[:200]}
+
+@app.get("/api/admin/users")
+def admin_users(role: str = Depends(current_admin_role)):
+    users = user_data().get("users", [])
+    out = [{"id": u.get("id", ""), "name": u.get("username") or u.get("name") or "", "avatar": u.get("avatar", ""), "profile_complete": bool(u.get("profile_complete")), "email": u.get("email", ""), "bio": u.get("bio", "")} for u in users]
+    return {"users": out}
 
 # ─── Static files (must be last) ───
 app.mount("/media", StaticFiles(directory=UPLOAD_DIR), name="media")
