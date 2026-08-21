@@ -467,10 +467,10 @@ function profileVerifyBadge(){
 function renderProfile(){
   var me=ME_PROFILE,c=profileCounts(),tab=state.profileTab;
   var hero='<div class="profile-hero">'
-    +'<span class="profile-hero-avatar">'+h(me.avatar)+'</span>'
+    +'<span class="profile-hero-avatar">'+userAvatarHtml(state.profile.avatar||me.avatarKey||'sun','width:72px;height:72px;font-size:28px;margin:0 auto 14px')+'</span>'
     +'<div class="profile-hero-info">'
     +'<div class="profile-hero-name"><h1>'+h(me.name)+'</h1>'+profileVerifyBadge()+'</div>'
-    +'<p class="profile-hero-bio">'+h(me.bio)+'</p>'
+    +'<p class="profile-hero-bio">'+h(me.bio||'')+'</p>'
     +'<div class="profile-hero-meta"><span><i data-lucide="graduation-cap"></i>'+h(me.major)+' · '+h(me.grade)+'</span><span><i data-lucide="building-2"></i>'+h(me.clazz)+'</span><span><i data-lucide="mail"></i>'+h(me.email)+'</span></div>'
     +'<div class="profile-hero-tags">'+(me.tags||[]).map(t=>'<span class="profile-tag">'+h(t)+'</span>').join('')+'</div>'
     +'</div>'
@@ -499,6 +499,7 @@ function renderProfileInfo(){
     +'<div class="profile-info-item"><span>专业</span><strong>'+h(me.major)+'</strong></div>'
     +'<div class="profile-info-item"><span>班级</span><strong>'+h(me.clazz)+'</strong></div>'
     +'<div class="profile-info-item"><span>邮箱</span><strong>'+h(me.email)+'</strong></div>'
+    +'<div class="profile-info-item"><span>生日</span><strong>'+h(me.birthday||state.profile.birthday||'—')+'</strong></div>'
     +'<div class="profile-info-item"><span>个人主页</span><strong>'+h(me.links.github||'—')+'</strong></div>'
     +'</div></div>';
   var s=me.verifyState;
@@ -646,6 +647,13 @@ function saveEditProfile(){
   var bio=$('edit-bio')?.value.trim(),email=$('edit-email')?.value.trim(),gh=$('edit-github')?.value.trim(),blog=$('edit-blog')?.value.trim();
   if(bio)ef.bio=bio;if(email)ef.email=email;ef.links.github=gh;ef.links.blog=blog;
   ME_PROFILE.bio=ef.bio;ME_PROFILE.email=ef.email;ME_PROFILE.links={github:ef.links.github,blog:ef.links.blog};
+  /* 同步进持久化资料（服务端 + 本地备份） */
+  if(bio){
+    state.profile.bio=bio;
+    state.profile.user_id=state.authSession&&state.authSession.user_id||state.profile.user_id||'';
+    saveProfileBackup(state.profile);
+    persistProfileToServer(state.profile);
+  }
   var o=document.getElementById('edit-profile-overlay');if(o)o.remove();
   toast('个人资料已更新');render()
 }
@@ -659,7 +667,9 @@ function renderProfileMenu(){
     {route:'profile',tab:1,label:'我的发布',icon:'file-text',desc:'帖子 / 问答 / 资料 / 活动'},
     {route:'',tab:-1,label:'退出登录',icon:'log-out',desc:'',danger:true}
   ];
-  m.innerHTML='<div class="profile-menu-head"><span class="avatar">张</span><div><strong>张三</strong><small>计算机科学 · 大三</small></div></div>'
+  var menuName=(state.authSession&&state.authSession.name)||(state.profile&&state.profile.username)||ME_PROFILE.name||'同学';
+  var menuAvatar=userAvatarHtml(state.profile.avatar||ME_PROFILE.avatarKey||'sun','width:38px;height:38px');
+  m.innerHTML='<div class="profile-menu-head">'+menuAvatar+'<div><strong>'+h(menuName)+'</strong><small>'+(state.authSession&&state.authSession.campus_verified?'校内身份已认证':'手机号已验证')+'</small></div></div>'
     +items.map(it=>`<button class="profile-menu-item${it.danger?' is-danger':''}" data-profile-menu-item="${it.label}" data-menu-route="${it.route}" data-menu-tab="${it.tab}"><i data-lucide="${it.icon}"></i><span><strong>${it.label}</strong><small>${it.desc}</small></span></button>`).join('');
   m.style.display='block';refreshIcons()
 }
@@ -671,7 +681,7 @@ function renderFeedCompose(){
       <button class="detail-back" data-close-compose>← 取消</button>
       <span style="font-size:16px;font-weight:680">发布新话题</span>
       <button class="button" id="submit-compose"${cc.trim()?'':' disabled'}>发布</button></div>
-    <div style="display:flex;gap:12px;padding:14px 0"><span class="avatar" style="width:40px;height:40px;font-size:14px">张</span><div style="flex:1"><div style="font-size:13px;font-weight:650">张三</div><div style="font-size:11px;color:var(--ink-3)">计算机科学·大三</div></div></div>
+    <div style="display:flex;gap:12px;padding:14px 0">${userAvatarHtml(state.profile.avatar||ME_PROFILE.avatarKey||'sun','width:40px;height:40px')}<div style="flex:1"><div style="font-size:13px;font-weight:650">${h((state.authSession&&state.authSession.name)||state.profile.username||'我')}</div><div style="font-size:11px;color:var(--ink-3)">校园成员</div></div></div>
     <input class="field" id="compose-title" value="${h(ct)}" placeholder="添加标题（可选）" style="font-size:16px;font-weight:580;border:none;border-bottom:1px solid var(--line);border-radius:0;padding:10px 0;margin-bottom:8px">
     <textarea class="field" id="compose-text" placeholder="说说你在校园里想分享的事…" style="min-height:180px;resize:vertical;border:none;border-radius:0;padding:10px 0;font-size:15px;line-height:1.7">${h(cc)}</textarea>
     <div class="compose-media-section">
@@ -892,9 +902,16 @@ function renderResources(){
   if(off.length){for(var oi=0;oi<off.length;oi++)html+=renderResItem(off[oi],true)}else html+='<p style="padding:0 24px;color:var(--ink-3);font-size:13px">暂无官方资料</p>';
   html+='<div class="res-section-header"><span class="res-section-badge personal">👤 个人分享</span><span style="color:var(--ink-3);font-size:12px;margin-left:8px">'+per.length+'项</span></div>';
   if(per.length){for(var pi=0;pi<per.length;pi++)html+=renderResItem(per[pi],false)}else html+='<p style="padding:0 24px;color:var(--ink-3);font-size:13px">暂无个人分享资料</p>';
-  /* 首次使用课程资料弹窗提示 */
+  /* 首次使用课程资料弹窗提示（金色高级风格） */
   if(p.loaded&&!p.seenIntro){
-    html+='<div class="publish-overlay" id="points-intro-overlay"><div class="publish-modal" style="max-width:460px"><div class="publish-modal-header"><h2>🏅 资料库积分规则</h2></div><div class="publish-body" style="font-size:13px;line-height:1.9;color:var(--ink-2)"><p style="margin:0 0 10px">欢迎首次使用课程资料库！为了让资料库持续保持活力，我们采用积分制：</p><p style="margin:0 0 8px">📚 <strong>公共资料库前 '+p.freeCount+' 份资料</strong>可随意预览、下载</p><p style="margin:0 0 8px">📤 <strong>上传一份资料 +'+p.uploadReward+' 积分</strong>（你上传的资料自己永远免费）</p><p style="margin:0 0 10px">🔒 <strong>'+p.unlockCost+' 积分解锁一份新资料</strong>（第 '+(p.freeCount+1)+' 份起）</p><p style="margin:0;font-size:12px;color:var(--ink-3)">当前余额：<strong>'+p.balance+'</strong> 分 · 上传资料即可快速赚取积分</p></div><div class="publish-footer"><button class="btn primary" data-points-intro-ok>我知道了</button></div></div></div>';
+    html+='<div class="publish-overlay points-intro-overlay" id="points-intro-overlay"><div class="publish-modal points-intro-modal">'
+      +'<div class="points-intro-head"><span class="points-intro-badge"><i data-lucide="medal"></i></span><h2>资料库积分规则</h2><p>优质资料，值得积分回报</p></div>'
+      +'<div class="points-intro-body">'
+      +'<div class="points-intro-row"><span class="points-intro-icon pi-free"><i data-lucide="book-open"></i></span><div><strong>公共资料库前 '+p.freeCount+' 份资料</strong><p>可随意预览、下载</p></div></div>'
+      +'<div class="points-intro-row"><span class="points-intro-icon pi-up"><i data-lucide="upload"></i></span><div><strong>上传一份资料 +'+p.uploadReward+' 积分</strong><p>你上传的资料，自己永远免费</p></div></div>'
+      +'<div class="points-intro-row"><span class="points-intro-icon pi-lock"><i data-lucide="lock"></i></span><div><strong>'+p.unlockCost+' 积分解锁一份新资料</strong><p>从第 '+(p.freeCount+1)+' 份起计费</p></div></div>'
+      +'<div class="points-intro-balance"><i data-lucide="coins"></i>当前余额 <b>'+p.balance+'</b> 分 · 上传资料即可快速赚取积分</div>'
+      +'</div><div class="publish-footer points-intro-footer"><button class="btn primary" data-points-intro-ok>我知道了</button></div></div></div>';
   }
   $('view-root').innerHTML=html;refreshIcons()
 }
@@ -1116,8 +1133,8 @@ function renderResLockScreen(r){
   var enough=(p.balance||0)>=cost;
   $('view-root').innerHTML='<div class="detail-overlay"><button class="detail-back" data-res-detail-back>← 返回资料库</button>'+
     '<div class="detail-hero"><div style="flex:1;min-width:0"><div class="hero-badge-row"><span class="hero-badge cat">'+h(r.type)+'</span><span class="hero-badge role">'+h(r.course)+' '+(h(r.courseName)||'')+'</span></div><h2>'+h(r.name)+'</h2><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"><span class="inline-tag">'+h(r.course)+'</span><span class="inline-tag">'+h(r.type)+'</span><span class="inline-tag">'+(h(r.year)||'')+'</span><span class="inline-tag">'+h(r.source)+'</span></div></div></div>'+
-    '<div class="detail-section"><div style="text-align:center;padding:32px 16px"><span style="font-size:56px">🔒</span><h3 style="margin:12px 0 6px">该资料需要积分解锁</h3><p style="color:var(--ink-3);font-size:13px;margin:0 0 4px">公共资料库前 '+p.freeCount+' 份免费，这份资料位于第 '+(state.resources.indexOf(r)+1)+' 份</p><p style="color:var(--ink-2);font-size:13px;margin:8px 0 16px">解锁消耗 <strong>'+cost+' 积分</strong> · 当前余额 <strong>'+(p.balance||0)+' 积分</strong></p>'+
-    (enough?('<button class="btn primary" data-res-unlock="'+r.id+'">🔓 立即解锁（-'+cost+'积分）</button>'):'<p style="color:var(--red);font-size:13px;margin:0 0 12px">积分不足，上传一份资料即可获得 '+p.uploadReward+' 积分</p><button class="btn primary" data-res-upload-open>📤 上传资料赚积分</button>')+
+    '<div class="detail-section"><div style="text-align:center;padding:32px 16px"><span class="points-lock-hero"><i data-lucide="lock"></i></span><h3 style="margin:12px 0 6px">该资料需要积分解锁</h3><p style="color:var(--ink-3);font-size:13px;margin:0 0 4px">公共资料库前 '+p.freeCount+' 份免费，这份资料位于第 '+(state.resources.indexOf(r)+1)+' 份</p><p style="color:var(--ink-2);font-size:13px;margin:8px 0 16px">解锁消耗 <strong>'+cost+' 积分</strong> · 当前余额 <strong>'+(p.balance||0)+' 积分</strong></p>'+
+    (enough?('<button class="btn primary" data-res-unlock="'+r.id+'"><i data-lucide="lock-open" style="width:14px;height:14px;vertical-align:middle"></i> 立即解锁（-'+cost+'积分）</button>'):'<p style="color:var(--red);font-size:13px;margin:0 0 12px">积分不足，上传一份资料即可获得 '+p.uploadReward+' 积分</p><button class="btn primary" data-res-upload-open>📤 上传资料赚积分</button>')+
     '</div></div></div>';refreshIcons()
 }
 function renderCourseCenter(tabs,hdr){
@@ -2032,7 +2049,7 @@ document.addEventListener('click',e=>{
   if(e.target.closest('#lang-toggle')){toggleLang();return}
   // ── Profile 下拉菜单 ──
   if(e.target.closest('#top-avatar-btn')){state.profileMenuOpen=!state.profileMenuOpen;if(state.profileMenuOpen)renderProfileMenu();else closeProfileMenu();return}
-  if(e.target.closest('.top-avatar-wrap')&&e.target.closest('[data-profile-menu-item]')){var pmi=e.target.closest('[data-profile-menu-item]');var pr=pmi.dataset.menuRoute,pt=parseInt(pmi.dataset.menuTab);closeProfileMenu();if(pr){state.profileTab=pt>=0?pt:0;routeTo(pr)}else{toast('已退出登录（Demo）')}return}
+  if(e.target.closest('.top-avatar-wrap')&&e.target.closest('[data-profile-menu-item]')){var pmi=e.target.closest('[data-profile-menu-item]');var pr=pmi.dataset.menuRoute,pt=parseInt(pmi.dataset.menuTab);closeProfileMenu();if(pr){state.profileTab=pt>=0?pt:0;routeTo(pr)}else{performLogout()}return}
   if(state.profileMenuOpen&&!e.target.closest('.top-avatar-wrap')){closeProfileMenu();return}
   // ── Profile 页内交互 ──
   if(e.target.closest('[data-profile-tab]')){state.profileTab=parseInt(e.target.closest('[data-profile-tab]').dataset.profileTab);render();return}
@@ -2535,6 +2552,67 @@ function rememberAccount(result, persistent) {
   localStorage.setItem(LOGIN_ACCOUNT_KEY, JSON.stringify({ email: (result && result.email) || '', phone: (result && result.phone_masked) || '', name: (result && result.name) || '' }));
 }
 
+/* ═══ 个人资料持久化：服务端 users.json + localStorage 备份双保险 ═══
+   Render 免费版重启会丢临时盘数据（users.json 被重置），同设备再次登录时
+   用 localStorage 备份恢复资料，并回写到服务端。 */
+const PROFILE_BACKUP_KEY = 'surf-profile-backup';
+
+function avatarIconName(key) {
+  var meta = AVATAR_META[key];
+  return meta ? meta.icon : 'sun';
+}
+function userAvatarHtml(key, style) {
+  var cls = AVATAR_META[key] ? 'avatar avatar-' + key : 'avatar avatar-sun';
+  return '<span class="' + cls + '" style="display:grid;place-items:center;overflow:hidden;' + (style || '') + '"><i data-lucide="' + avatarIconName(key) + '" style="width:58%;height:58%"></i></span>';
+}
+function saveProfileBackup(p) {
+  try { localStorage.setItem(PROFILE_BACKUP_KEY, JSON.stringify(p)); } catch (e) {}
+}
+function readProfileBackup(userId) {
+  try {
+    var p = JSON.parse(localStorage.getItem(PROFILE_BACKUP_KEY) || 'null');
+    if (p && p.user_id === userId && p.profile_complete) return p;
+  } catch (e) {}
+  return null;
+}
+function applyUserProfile(p) {
+  if (!p) return;
+  state.profile = Object.assign({}, state.profile, p);
+  if (p.username) {
+    state.authSession.name = p.username;
+    ME_PROFILE.name = p.username;
+  }
+  if (typeof p.bio === 'string' && p.bio) ME_PROFILE.bio = p.bio;
+  if (state.editProfileForm && typeof p.bio === 'string' && p.bio) state.editProfileForm.bio = p.bio;
+  ME_PROFILE.birthday = p.birthday || '';
+  ME_PROFILE.avatarKey = p.avatar || 'sun';
+  updateIdentityChrome();
+}
+function persistProfileToServer(p) {
+  return apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ username: p.username, bio: p.bio || '', birthday: p.birthday || '', avatar: p.avatar || 'sun' }) }).catch(function () { return null; });
+}
+function restoreProfileIfReset() {
+  var uid = state.authSession && state.authSession.user_id;
+  if (!uid) return;
+  if (state.profile && state.profile.profile_complete) return;
+  var backup = readProfileBackup(uid);
+  if (!backup) return;
+  applyUserProfile(backup);
+  state.authSession.needs_onboarding = false;
+  persistProfileToServer(backup); // 回写服务端（静默）
+}
+function performLogout() {
+  closeProfileMenu();
+  try {
+    localStorage.removeItem(LOGIN_STORAGE_KEY);
+    sessionStorage.removeItem(LOGIN_STORAGE_KEY);
+    localStorage.removeItem(LOGIN_ACCOUNT_KEY);
+  } catch (e) {}
+  apiFetch('/api/auth/session', { method: 'DELETE' }).catch(function () {});
+  toast('已退出登录');
+  window.setTimeout(function () { location.href = '/'; }, 400);
+}
+
 function setLoginMood(mood) {
   const experience = $('login-experience');
   if (experience) experience.dataset.mood = mood;
@@ -2593,14 +2671,34 @@ function showLoginGate() {
   refreshIcons();
 }
 function updateIdentityChrome() {
-  const name = state.authSession.name || state.profile.username || '张三';
+  const name = state.authSession.name || state.profile.username || ME_PROFILE.name || '同学';
   const initial = (name || '校').slice(0, 1);
+  const avatarKey = state.profile.avatar || ME_PROFILE.avatarKey || 'sun';
+  const icon = avatarIconName(avatarKey);
+  const avatarClass = AVATAR_META[avatarKey] ? 'avatar-' + avatarKey : 'avatar-sun';
   const sbName = document.querySelector('#sidebar-profile-btn strong');
   if (sbName) sbName.textContent = name;
   const sbAvatar = document.querySelector('#sidebar-profile-btn .avatar');
-  if (sbAvatar) sbAvatar.textContent = initial;
+  if (sbAvatar) {
+    sbAvatar.textContent = '';
+    sbAvatar.className = 'avatar ' + avatarClass;
+    sbAvatar.style.display = 'grid';
+    sbAvatar.style.placeItems = 'center';
+    sbAvatar.innerHTML = '<i data-lucide="' + icon + '" style="width:16px;height:16px"></i>';
+  }
   const taAvatar = document.querySelector('#top-avatar-btn .avatar-circle');
-  if (taAvatar) taAvatar.textContent = initial;
+  if (taAvatar) {
+    taAvatar.textContent = '';
+    taAvatar.className = 'avatar-circle ' + avatarClass;
+    taAvatar.style.display = 'grid';
+    taAvatar.style.placeItems = 'center';
+    taAvatar.innerHTML = '<i data-lucide="' + icon + '" style="width:15px;height:15px"></i>';
+  }
+  const menuHead = document.querySelector('#profile-menu .avatar');
+  if (menuHead) {
+    menuHead.textContent = initial;
+  }
+  if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
 }
 function unlockApp() {
   const experience = $('login-experience');
@@ -2622,6 +2720,8 @@ async function syncLoginGate() {
     if (session && session.profile) state.profile = Object.assign({}, state.profile, session.profile);
   } catch (e) {}
   if (state.authSession.dev_bypass || ((state.authSession.phone_authenticated || state.authSession.email_authenticated) && hasStoredLogin())) {
+    restoreProfileIfReset(); // 服务端资料丢失时从本地备份恢复
+    applyUserProfile(state.profile);
     unlockApp();
   } else {
     showLoginGate();
@@ -2662,6 +2762,7 @@ function failLogin(form, message) {
 function completeLogin(result, persistent, form) {
   state.authSession = result;
   state.profile = result.profile || state.profile;
+  restoreProfileIfReset(); // 服务器重启丢资料时，从本地备份恢复该账户的资料
   rememberLogin(persistent);
   rememberAccount(result, persistent);
   setLoginBusy(form, false);
@@ -2900,7 +3001,7 @@ function initProfileOnboardingGuard() {
   if (mediaQuery && mediaQuery.addEventListener) mediaQuery.addEventListener('change', function () {
     if (!state.theme || state.theme === 'system') document.documentElement.dataset.theme = '';
   });
-  // 首次引导提交（本地更新 + 关闭）
+  // 首次引导提交：本地更新 + 服务端持久化 + 本地备份（防服务器重启丢失）
   const form = $('profile-onboarding-form');
   if (form) form.addEventListener('submit', function (event) {
     event.preventDefault();
@@ -2914,8 +3015,14 @@ function initProfileOnboardingGuard() {
     state.profile.profile_complete = true;
     state.authSession.name = username;
     state.authSession.needs_onboarding = false;
-    updateIdentityChrome();
+    state.profile.user_id = state.authSession.user_id || '';
+    applyUserProfile(state.profile);
+    saveProfileBackup(state.profile);
+    persistProfileToServer(state.profile).then(function (saved) {
+      if (saved) { applyUserProfile(saved); saveProfileBackup(Object.assign({}, state.profile, saved)); }
+    });
     if (dialog) dialog.close();
     showToast('资料已保存，欢迎进入校园');
+    render();
   });
 }
