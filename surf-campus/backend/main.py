@@ -1378,6 +1378,15 @@ def unflag_user_profile(user_id: str, role: str = Depends(moderation_role)):
     return {"status": "ok"}
 
 # ─── Static files (must be last) ───
+# HTML/JS/CSS 不允许启发式缓存：浏览器每次以 ETag 协商（304 很轻），确保部署后立即拿到新前端
+@app.middleware("http")
+async def _no_cache_text_assets(request, call_next):
+    resp = await call_next(request)
+    ct = resp.headers.get("content-type", "")
+    if ct.startswith(("text/html", "text/css", "text/javascript", "application/javascript")):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
 app.mount("/media", StaticFiles(directory=UPLOAD_DIR), name="media")
 app.mount("/resource-files", StaticFiles(directory=RESOURCE_FILE_DIR), name="resource-files")
 _frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
