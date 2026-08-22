@@ -1191,7 +1191,7 @@ function renderDirectory(){
   var items=MOCK_MSGS;
   if(dirTab===1)items=MOCK_MSGS.filter(function(m){return m.tag==='recruit'});
   else if(dirTab===2)items=MOCK_MSGS.filter(function(m){return m.tag==='office_hour'});
-  var active=state.activeMsg?MOCK_MSGS.find(function(m){return m.id===state.activeMsg}):(dirTab===3?null:items[0]);
+  var active=state.activeMsg?MOCK_MSGS.find(function(m){return m.id===state.activeMsg}):((dirTab===3||state.msgListOnly)?null:items[0]);
   var sidebar='<div class="msg-tabs">'+tabs.map(function(tt,ti){return'<button class="msg-tab'+(dirTab===ti?' active':'')+'" data-dir-tab="'+ti+'">'+tt+'</button>'}).join('')+'</div>';
   if(dirTab===3){
     // Contact filter bar
@@ -1254,7 +1254,7 @@ function renderDirectory(){
   }
   var chat='<div class="msg-empty"><i data-lucide="messages-square" style="width:34px;height:34px;opacity:.4"></i><span>点击左侧会话开始交流</span></div>';
   if(active&&dirTab!==3){
-    chat='<div class="msg-chat-header"><span class="msg-chat-avatar">'+h(active.avatar)+'</span><div><strong>'+h(active.contact)+'</strong><p>'+h(active.role)+(active.status?' · <span class="msg-status">'+active.status+'</span>':'')+'</p></div></div>';
+    chat='<div class="msg-chat-header"><button class="msg-back-btn" data-msg-back aria-label="返回列表"><i data-lucide="arrow-left"></i></button><span class="msg-chat-avatar">'+h(active.avatar)+'</span><div><strong>'+h(active.contact)+'</strong><p>'+h(active.role)+(active.status?' · <span class="msg-status">'+active.status+'</span>':'')+'</p></div></div>';
     chat+='<div class="msg-chat-body">';
     for(var mgi=0;mgi<active.msgs.length;mgi++){var mg=active.msgs[mgi],isSelf=mg.from==='self',isSys=mg.from==='system';chat+='<div class="msg-bubble'+(isSelf?' self':'')+(isSys?' system':'')+'"><span>'+(isSys?'<i data-lucide="bell" style="width:12px;height:12px;vertical-align:middle"></i> ':'')+h(mg.text)+'</span><span class="msg-bubble-time">'+formatTime(mg.time)+'</span></div>'}
     chat+='</div>';
@@ -1265,7 +1265,7 @@ function renderDirectory(){
     var isTeacher=dc.role==='teacher';
     var sColor=dc.status==='online'?'#5cb85c':(dc.status==='busy'?'#f0ad4e':'#ccc');
     var statusLabel=dc.status==='online'?'在线':(dc.status==='busy'?'忙碌':'离线');
-    chat='<div class="msg-chat-header"><span class="msg-chat-avatar" style="position:relative">'+h((dc.name||'校').slice(0,1))+'</span><div><strong>'+h(dc.name)+'</strong><p><span class="contact-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+sColor+';margin-right:4px;vertical-align:middle"></span>'+h(isTeacher?dc.title:dc['年级']+'级 · '+dc.major)+' <span class="msg-status">'+statusLabel+'</span></p></div></div>';
+    chat='<div class="msg-chat-header"><button class="msg-back-btn" data-msg-back aria-label="返回列表"><i data-lucide="arrow-left"></i></button><span class="msg-chat-avatar" style="position:relative">'+h((dc.name||'校').slice(0,1))+'</span><div><strong>'+h(dc.name)+'</strong><p><span class="contact-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+sColor+';margin-right:4px;vertical-align:middle"></span>'+h(isTeacher?dc.title:dc['年级']+'级 · '+dc.major)+' <span class="msg-status">'+statusLabel+'</span></p></div></div>';
     chat+='<div class="msg-chat-body">';
     if(dmsgs.length===0){
       chat+='<div class="msg-bubble system"><span>你已与 '+h(dc.name)+' 建立联系，可以开始交流了</span><span class="msg-bubble-time">'+formatTime(new Date().toISOString())+'</span></div>'
@@ -1275,7 +1275,8 @@ function renderDirectory(){
     chat+='</div>';
     chat+='<div class="msg-chat-input"><form id="dir-msg-form"><input id="dir-msg-input" placeholder="输入消息…"><button class="msg-send-btn" type="submit">发送</button></form><div class="msg-quick-actions"><button class="msg-quick-btn" data-dir-quick="resume"><i data-lucide="paperclip" style="width:12px;height:12px"></i> 发送简历</button><button class="msg-quick-btn" data-dir-quick="appointment"><i data-lucide="calendar-plus" style="width:12px;height:12px"></i> 创建预约</button></div></div>'
   }
-  $('view-root').innerHTML='<div class="msg-page"><div class="msg-sidebar">'+sidebar+'</div><div class="msg-main">'+chat+'</div></div>';if(state.dirResumePick)renderResumePickModal();refreshIcons()
+  var chatOpen=!!(dirTab===3?state.directoryChatContact:active);
+  $('view-root').innerHTML='<div class="msg-page'+(chatOpen?' chat-open':'')+'"><div class="msg-sidebar">'+sidebar+'</div><div class="msg-main">'+chat+'</div></div>';if(state.dirResumePick)renderResumePickModal();refreshIcons()
 }
 /* ── 通讯录 · 发送简历选择弹窗 ── */
 function renderResumePickModal(){
@@ -2326,8 +2327,9 @@ document.addEventListener('click',e=>{
   if(e.target.closest('[data-cc-step]')){var ccStep=parseInt(e.target.closest('[data-cc-step]').dataset.ccStep);if(ccStep===2&&!state.ccModal.date1){var dd=document.getElementById('cc-date1');if(dd&&dd.value){state.ccModal.date1=dd.value;state.ccModal.time1=document.getElementById('cc-time1')?.value||''}}if(ccStep===2&&!state.ccModal.date1)return;state.ccModal.step=ccStep;renderCoffeeChatModal();return}
   if(e.target.closest('[data-cc-submit]')){submitCoffeeChat();return}
   // Directory hub
-  if(e.target.closest('[data-dir-tab]')){state.msgTab=parseInt(e.target.closest('[data-dir-tab]').dataset.dirTab);state.activeMsg='';render();return}
-  if(e.target.closest('[data-msg-id]')){state.activeMsg=e.target.closest('[data-msg-id]').dataset.msgId;render();return}
+  if(e.target.closest('[data-dir-tab]')){state.msgTab=parseInt(e.target.closest('[data-dir-tab]').dataset.dirTab);state.activeMsg='';state.msgListOnly=false;render();return}
+  if(e.target.closest('[data-msg-back]')){if((state.msgTab||0)===3){state.directoryChatContact=null}else{state.activeMsg='';state.msgListOnly=true}render();return}
+  if(e.target.closest('[data-msg-id]')){state.activeMsg=e.target.closest('[data-msg-id]').dataset.msgId;state.msgListOnly=false;render();return}
   if(e.target.closest('[data-msg-contact]')&&!e.target.closest('[data-contact-action]')){var cid=e.target.closest('[data-msg-contact]').dataset.msgContact;var cp=state.directoryPeople.find(function(p){return p.id===cid});if(cp){state.directoryChatContact=cp;if(!state.directoryChatMsgs[cid])state.directoryChatMsgs[cid]=[];render()}return}
   if(e.target.closest('#msg-form')){e.preventDefault();toast('消息已发送（Demo模式）');return}
   if(e.target.closest('#dir-form')){e.preventDefault();state.directoryKeyword=$('dir-keyword')?.value||'';render();return}

@@ -2108,3 +2108,31 @@ body.auth-pending .app-shell, body.auth-pending .mobile-nav { display: none; }
 /* ═══ Mobile 可折叠侧边栏——深色覆盖 ═══ */
 :root[data-theme="dark"] .sidebar-collapse{background:#141414;border-color:rgba(255,255,255,.4);color:#e6e6e6}
 :root[data-theme="dark"] .sidebar-backdrop{background:rgba(0,0,0,.62)}
+
+/* ═══ 手机端通讯录：列表/聊天二选一（微信式），返回键回列表 ═══ */
+.msg-back-btn{display:none}
+@media(max-width:800px){
+  .msg-page{grid-template-columns:1fr;height:calc(100vh - 61px)}
+  .msg-main{display:none}
+  .msg-page.chat-open .msg-main{display:flex}
+  .msg-page.chat-open .msg-sidebar{display:none}
+  .msg-back-btn{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft);color:var(--ink-2);cursor:pointer;flex-shrink:0}
+  .msg-back-btn svg{width:16px;height:16px}
+  .msg-chat-header{padding:12px}
+  .msg-chat-body{padding:14px 12px}
+  .msg-chat-input{padding:10px 12px 12px}
+}
+
+/* ═══ 深色模式：AI 聊天弹窗对比度修复（白字配深底） ═══ */
+:root[data-theme="dark"] .ai-chat-modal{background:#0a0a0a;border:1px solid rgba(255,255,255,.3)}
+:root[data-theme="dark"] .ai-chat-header{background:#141414;border-bottom-color:rgba(255,255,255,.3)}
+:root[data-theme="dark"] .ai-chat-close:hover{background:rgba(255,255,255,.1);color:#fff}
+:root[data-theme="dark"] .ai-chat-msg.bot .ai-chat-bubble{background:#1e1e1e;border:1px solid rgba(255,255,255,.22);color:#fff}
+:root[data-theme="dark"] .ai-chat-msg.user .ai-chat-bubble{background:#4f6354;color:#fff}
+:root[data-theme="dark"] .ai-chat-window::-webkit-scrollbar-thumb{background:#3a3a3a}
+:root[data-theme="dark"] .ai-chat-typing span{background:#9a9a9a}
+:root[data-theme="dark"] .ai-chat-chips{background:#0a0a0a;border-top-color:rgba(255,255,255,.3)}
+:root[data-theme="dark"] .ai-chat-chip{border-color:#3a3a3a;background:#141414;color:#e6e6e6}
+:root[data-theme="dark"] .ai-chat-chip:hover{border-color:#5a5a5a;background:#1e1e1e;color:#fff}
+:root[data-theme="dark"] .ai-chat-input-row{background:#0a0a0a;border-top-color:rgba(255,255,255,.3)}
+:root[data-theme="dark"] .ai-chat-input-row input{background:#141414;border-color:rgba(255,255,255,.3);color:#fff}
