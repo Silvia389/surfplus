@@ -153,7 +153,7 @@
       reports: '每次用户点“举报”都会记录在这里（谁举报的、举报原因、被举报的帖子）。处理完点“标记已处理”。注：旧数据可能没有举报人字段。',
       logins: '每一次成功登录（手机验证码 / 演示验证码 / 邮箱）都会记录：谁、什么时间、用什么方式。最多保留最近 500 条。',
       audit: '管理员的审核操作记录：谁在什么时间通过/拒绝了哪个帖子、处理了哪个举报。',
-      users: '所有在平台上完成过资料设置的账号（手机号或邮箱登录后即建档）。'
+      users: '所有在平台上完成过资料设置的账号（手机号或邮箱登录后即建档）。可查看学生填写的真实姓名/专业/年级/邮箱；发现资料不实可点「标记资料不实」，学生会收到站内提醒，7 天内未修改将被限制登录 30 天。'
     };
 
     function $(id) { return document.getElementById(id); }
@@ -250,9 +250,30 @@
     function renderUsers(users) {
       if (!users.length) return '<div class="empty">暂无注册用户</div>';
       var rows = users.map(function (u) {
-        return '<tr><td>' + esc(u.name || '-') + '</td><td style="font-family:monospace;font-size:12px">' + esc(u.id || '-') + '</td><td>' + esc(u.email || '-') + '</td><td>' + esc(u.avatar || '-') + '</td><td>' + (u.profile_complete ? '✅ 已完成' : '… 未完成') + '</td><td>' + esc((u.bio || '').slice(0, 40)) + '</td></tr>';
+        var flagHtml;
+        if (u.flagged) {
+          flagHtml = '<span class="badge badge-pending">⚠ 待修改</span>' +
+            '<div style="font-size:11px;color:var(--red);margin-top:4px">' + esc(u.flag_reason || '') + '</div>' +
+            '<div style="font-size:11px;color:var(--ink-3)">期限 ' + esc(u.flag_deadline || '-') + '</div>' +
+            (u.flag_blocked_until ? '<div style="font-size:11px;color:var(--red)">已封禁至 ' + esc(u.flag_blocked_until) + '</div>' : '');
+        } else {
+          flagHtml = '<span style="color:var(--ink-3)">正常</span>';
+        }
+        return '<tr>' +
+          '<td><strong>' + esc(u.real_name || u.name || '-') + '</strong>' + (u.real_name ? '<div style="font-size:11px;color:var(--ink-3)">' + esc(u.name || '') + '</div>' : '') + '</td>' +
+          '<td style="font-family:monospace;font-size:12px">' + esc(u.id || '-') + '</td>' +
+          '<td>' + esc(u.major || '-') + '<div style="font-size:11px;color:var(--ink-3)">' + esc(u.year || '') + (u.clazz ? ' · ' + esc(u.clazz) : '') + '</div></td>' +
+          '<td>' + esc(u.email || '-') + '</td>' +
+          '<td>' + (u.profile_complete ? '✅ 已完成' : '… 未完成') + '<div style="font-size:11px;color:var(--ink-3)">' + esc((u.tags || []).join(' / ')) + '</div></td>' +
+          '<td>' + flagHtml + '</td>' +
+          '<td><div class="actions" style="flex-direction:column;gap:6px;align-items:stretch">' +
+            (u.flagged
+              ? '<button class="btn-gold" data-unflag="' + esc(u.id) + '">解除标记</button>'
+              : '<button class="btn-red" data-flag="' + esc(u.id) + '">标记资料不实</button>') +
+          '</div></td></tr>';
       }).join('');
-      return '<div class="table-card"><table class="list"><thead><tr><th>昵称</th><th>账号 ID</th><th>邮箱</th><th>头像</th><th>资料</th><th>简介</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      return '<div class="table-card"><table class="list"><thead><tr><th>姓名/昵称</th><th>账号 ID</th><th>专业/年级</th><th>邮箱</th><th>资料</th><th>实名审核</th><th>操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        '<div class="empty" style="margin-top:10px">「标记资料不实」后会向该学生发送站内提醒，限 7 天内修改；逾期未改账号将被限制登录 30 天。学生修改资料后标记自动解除。</div>';
     }
 
     function loadTab() {
@@ -291,6 +312,7 @@
       var btn = ev.target.closest('button');
       if (!btn) return;
       var approve = btn.dataset.approve, reject = btn.dataset.reject, resolve = btn.dataset.resolve, dismiss = btn.dataset.dismiss;
+      var flag = btn.dataset.flag, unflag = btn.dataset.unflag;
       if (!canWrite()) { toast('当前角色只读，请切换为平台管理员或审核员'); return; }
       if (approve) {
         api('/api/admin/posts/' + approve + '?status=published', { method: 'PATCH' })
@@ -307,6 +329,17 @@
       } else if (dismiss) {
         api('/api/admin/reports/' + dismiss + '?status=dismissed&note=' + encodeURIComponent('驳回：举报不成立'), { method: 'PATCH' })
           .then(function () { toast('已驳回举报'); refreshAll(); })
+          .catch(function (e) { toast('失败：' + e.message); });
+      } else if (flag) {
+        var reason = (window.prompt('请输入资料不实的具体原因（将发送给学生）：') || '').trim();
+        if (!reason) { toast('已取消：需要填写原因'); return; }
+        api('/api/admin/users/' + encodeURIComponent(flag) + '/flag?reason=' + encodeURIComponent(reason), { method: 'POST' })
+          .then(function () { toast('已发送提醒通知，学生须在 7 天内修改'); refreshAll(); })
+          .catch(function (e) { toast('失败：' + e.message); });
+      } else if (unflag) {
+        if (!window.confirm('确认解除该用户的审核标记？')) return;
+        api('/api/admin/users/' + encodeURIComponent(unflag) + '/unflag', { method: 'POST' })
+          .then(function () { toast('已解除标记并通知用户'); refreshAll(); })
           .catch(function (e) { toast('失败：' + e.message); });
       }
     });
