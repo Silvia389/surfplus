@@ -107,6 +107,25 @@
     a.back-link { font-size: 12px; color: var(--ink-3); text-decoration: none; }
     a.back-link:hover { color: var(--accent); }
     .status-note { font-size: 12px; color: var(--gold); margin-top: 8px; }
+
+    /* ── 移动端适配 ── */
+    @media (max-width: 640px) {
+      .shell { padding: 16px 12px 80px; }
+      header.topbar { gap: 10px; }
+      .brand-text strong { font-size: 15px; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .stat-card { padding: 12px 14px; }
+      .stat-card .num { font-size: 22px; }
+      .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 8px; scrollbar-width: none; }
+      .tabs::-webkit-scrollbar { display: none; }
+      .tab { padding: 8px 12px; font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+      .card { padding: 12px 12px; }
+      .table-card { padding: 4px 6px; }
+      table.list { font-size: 12px; }
+      table.list th, table.list td { padding: 7px 8px; }
+      .toast { bottom: 84px; width: max-content; max-width: calc(100vw - 32px); }
+      button { padding: 6px 10px; font-size: 12px; }
+    }
   </style>
 </head>
 <body>
