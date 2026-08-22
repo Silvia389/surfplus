@@ -69,6 +69,93 @@ def log_login(user_id, name, method, detail=""):
     data["logs"] = data["logs"][:500]
     write_data("login_logs.json", data)
 
+def notify(user_id, content, level="normal", title="资料审核"):
+    """向指定用户写入一条站内通知（并入 messages.json 的通知列表，前端通知中心可见）。"""
+    data = read_data("messages.json", {"notifications": []})
+    data.setdefault("notifications", []).insert(0, {"id": f"ntf_{uuid.uuid4().hex[:10]}", "user_id": user_id or "", "level": level, "type": "system", "title": title, "content": content, "time": time.strftime("%Y-%m-%d %H:%M"), "read": False, "processed": False, "saved_for_later": False})
+    write_data("messages.json", data)
+
+def _parse_time_str(s):
+    try:
+        return time.mktime(time.strptime(s, "%Y-%m-%d %H:%M"))
+    except Exception:
+        return 0.0
+
+def generate_profile_tags(bio):
+    """用 DeepSeek 根据个人简介生成 3-5 个个性标签；失败时返回空列表。"""
+    bio = (bio or "").strip()
+    if not bio:
+        return []
+    try:
+        client, model = _llm_translate_client()
+        if not client:
+            return []
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "你是校园社交平台的标签生成器。根据用户个人简介生成 3-5 个简短的中文个性标签（每条 2-8 字，如「AI爱好者」「摄影」「INFJ」「羽毛球搭子」）。只返回 JSON：{\"tags\": [\"标签1\", \"标签2\", ...]}"},
+                {"role": "user", "content": bio[:600]},
+            ],
+            temperature=0.4, max_tokens=200,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+        start, end = text.find("{"), text.rfind("}")
+        if start >= 0 and end > start:
+            tags = json.loads(text[start:end + 1]).get("tags") or []
+            cleaned = []
+            for t in tags:
+                if isinstance(t, str) and t.strip() and t.strip() not in cleaned:
+                    cleaned.append(t.strip()[:12])
+            return cleaned[:5]
+    except Exception:
+        pass
+    return []
+
+FLAG_WINDOW_DAYS = 7      # 被标记后允许修改的期限（天）
+BAN_DAYS = 30             # 逾期未修改的封禁时长（天）
+
+def check_profile_block(user_id):
+    """登录时检查实名审核封禁状态。返回 None 表示放行；否则返回拒绝原因。"""
+    if not user_id:
+        return None
+    profile = next((u for u in user_data().get("users", []) if u.get("id") == user_id), None)
+    if not profile:
+        return None
+    flag = profile.get("flag") or {}
+    if not flag.get("flagged"):
+        return None
+    updated_ts = _parse_time_str(profile.get("updated_at") or "") or float(profile.get("updated_ts") or 0)
+    flagged_ts = float(flag.get("flagged_ts") or 0) or _parse_time_str(flag.get("flagged_at") or "")
+    # 用户在标记后修改过资料 → 自动解除标记
+    if updated_ts and flagged_ts and updated_ts > flagged_ts:
+        profile["flag"] = None
+        data = user_data()
+        for u in data["users"]:
+            if u.get("id") == user_id:
+                u["flag"] = None
+        write_data("users.json", data)
+        return None
+    now = time.time()
+    deadline_ts = float(flag.get("deadline_ts") or 0)
+    if deadline_ts and now > deadline_ts:
+        blocked_until = float(flag.get("blocked_until_ts") or 0)
+        if not blocked_until:
+            blocked_until = deadline_ts + BAN_DAYS * 86400
+            flag["blocked_until_ts"] = blocked_until
+            flag["blocked_until"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(blocked_until))
+            data = user_data()
+            for u in data["users"]:
+                if u.get("id") == user_id:
+                    u["flag"] = flag
+            write_data("users.json", data)
+        if now < blocked_until:
+            return f"你的实名资料经审核存在疑问且逾期未修改，账号已被限制登录至 {flag.get('blocked_until', '')}。如有疑问请联系平台管理员。"
+    return None
+
 def current_admin_role(x_admin_role: str = Header(default="student")) -> str:
     if x_admin_role not in ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="当前角色无权访问管理端")
@@ -166,7 +253,7 @@ def user_data():
     return data
 
 def profile_defaults(user_id, name="校园成员", role="student"):
-    return {"id": user_id, "name": name or "校园成员", "username": name or "校园成员", "bio": "", "birthday": "", "avatar": "sun", "profile_complete": False, "role": role, "department": "", "year": "", "tags": [], "email": "", "github": "", "blog": ""}
+    return {"id": user_id, "name": name or "校园成员", "username": name or "校园成员", "real_name": "", "bio": "", "birthday": "", "avatar": "sun", "profile_complete": False, "role": role, "department": "", "major": "", "year": "", "clazz": "", "tags": [], "email": "", "github": "", "blog": "", "updated_at": 0.0}
 
 def profile_for_user(user_id, name="校园成员"):
     data = user_data()
@@ -378,6 +465,10 @@ class ProfileUpdate(BaseModel):
     email: str | None = Field(default=None, max_length=120)
     github: str | None = Field(default=None, max_length=160)
     blog: str | None = Field(default=None, max_length=160)
+    real_name: str | None = Field(default=None, max_length=40)
+    major: str | None = Field(default=None, max_length=60)
+    year: str | None = Field(default=None, max_length=20)
+    clazz: str | None = Field(default=None, max_length=40)
 
 class PreferenceUpdate(BaseModel):
     sections: list[str] = Field(default_factory=list, max_length=4)
@@ -420,12 +511,18 @@ def login_by_phone(req: PhoneLoginRequest, request: Request):
     # no need to click "获取验证码" first.
     mock_code = os.environ.get("SURF_MOCK_SMS_CODE", "123456")
     if secrets.compare_digest(req.code.strip(), mock_code):
+        block_msg = check_profile_block(f"phone_{digits}")
+        if block_msg:
+            raise HTTPException(status_code=403, detail=block_msg)
         session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
         persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
         save_auth_session(session)
         log_login(session["user_id"], session["name"], "phone", f"演示验证码登录 {session['phone_masked']}")
         return auth_response(session)
     consume_verification_code("sms", digits, req.code)
+    block_msg = check_profile_block(f"phone_{digits}")
+    if block_msg:
+        raise HTTPException(status_code=403, detail=block_msg)
     session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
     persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
     save_auth_session(session)
@@ -447,6 +544,9 @@ def login_by_email(req: EmailLoginRequest):
         raise HTTPException(status_code=401, detail="邮箱或密码不正确")
     is_campus = email.endswith(SCHOOL_EMAIL_SUFFIXES)
     name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@")[0])[:40] or "student"
+    block_msg = check_profile_block(f"email_{name}")
+    if block_msg:
+        raise HTTPException(status_code=403, detail=block_msg)
     session = {"phone_authenticated": True, "email_authenticated": True, "phone_masked": "", "campus_verified": is_campus, "user_id": f"email_{name}", "name": name.replace(".", " ").title(), "campus_account": email if is_campus else "", "email": email}
     persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
     save_auth_session(session)
@@ -1026,9 +1126,16 @@ def list_groups():
 
 # ─── Notifications ───
 @app.get("/api/notifications")
-def get_notifications(unread_only: bool = False):
+def get_notifications(request: Request, unread_only: bool = False):
     data = read_data("messages.json", {"notifications": []})
     notifs = data.get("notifications", [])
+    # 定向通知（如资料审核提醒）只发给对应用户；无 user_id 的为全站广播
+    try:
+        session = auth_session_for_request(request)
+        uid = session_user_id(session)
+    except Exception:
+        uid = "u001"
+    notifs = [n for n in notifs if not n.get("user_id") or n.get("user_id") == uid]
     if unread_only:
         notifs = [n for n in notifs if not n.get("read", False)]
     return {"notifications": notifs}
@@ -1115,9 +1222,51 @@ def update_profile(req: ProfileUpdate, request: Request):
         profile["github"] = req.github
     if req.blog is not None:
         profile["blog"] = req.blog
+    if req.real_name is not None:
+        profile["real_name"] = req.real_name.strip()[:40]
+    if req.major is not None:
+        profile["major"] = req.major.strip()[:60]
+    if req.year is not None:
+        profile["year"] = req.year.strip()[:20]
+    if req.clazz is not None:
+        profile["clazz"] = req.clazz.strip()[:40]
+    # 简介变化时用 AI 重新生成个性标签（失败保留旧标签）
+    if req.bio.strip() and req.bio.strip() != (profile.get("tags_bio") or ""):
+        new_tags = generate_profile_tags(req.bio)
+        if new_tags:
+            profile["tags"] = new_tags
+            profile["tags_bio"] = req.bio.strip()
+    profile["updated_at"] = time.strftime("%Y-%m-%d %H:%M")
+    profile["updated_ts"] = time.time()
+    # 被审核标记的用户修改资料 → 自动解除标记并通知
+    if (profile.get("flag") or {}).get("flagged"):
+        profile["flag"] = None
+        notify(session_user_id(session), "你已修改实名资料，此前的审核疑问标记已自动解除。感谢配合！", "normal")
     write_data("users.json", data)
     save_auth_session({**session, "name": req.username})
     return public_profile(session_user_id(session), req.username)
+
+@app.post("/api/profile/tags")
+def refresh_profile_tags(request: Request):
+    """为当前用户根据简介重新生成 AI 标签（旧资料/生成失败时由前端触发）。"""
+    session = auth_session_for_request(request)
+    uid = session_user_id(session)
+    profile = profile_for_user(uid, session.get("name", "校园成员"))
+    bio = (profile.get("bio") or "").strip()
+    if not bio:
+        return {"tags": profile.get("tags") or []}
+    if profile.get("tags") and profile.get("tags_bio") == bio:
+        return {"tags": profile.get("tags")}
+    tags = generate_profile_tags(bio)
+    if tags:
+        data = user_data()
+        for u in data["users"]:
+            if u.get("id") == uid:
+                u["tags"] = tags
+                u["tags_bio"] = bio
+        write_data("users.json", data)
+        return {"tags": tags}
+    return {"tags": profile.get("tags") or []}
 
 # ─── Admin (core endpoints) ───
 @app.get("/api/admin/session")
@@ -1187,8 +1336,46 @@ def admin_audit(role: str = Depends(current_admin_role)):
 @app.get("/api/admin/users")
 def admin_users(role: str = Depends(current_admin_role)):
     users = user_data().get("users", [])
-    out = [{"id": u.get("id", ""), "name": u.get("username") or u.get("name") or "", "avatar": u.get("avatar", ""), "profile_complete": bool(u.get("profile_complete")), "email": u.get("email", ""), "bio": u.get("bio", "")} for u in users]
+    out = []
+    for u in users:
+        flag = u.get("flag") or {}
+        out.append({
+            "id": u.get("id", ""), "name": u.get("username") or u.get("name") or "",
+            "real_name": u.get("real_name", ""), "major": u.get("major", ""), "year": u.get("year", ""),
+            "clazz": u.get("clazz", ""), "avatar": u.get("avatar", ""),
+            "profile_complete": bool(u.get("profile_complete")), "email": u.get("email", ""),
+            "github": u.get("github", ""), "bio": u.get("bio", ""), "tags": u.get("tags") or [],
+            "birthday": u.get("birthday", ""), "updated_at": u.get("updated_at", ""),
+            "flagged": bool(flag.get("flagged")), "flag_reason": flag.get("reason", ""),
+            "flag_deadline": flag.get("deadline", ""), "flag_blocked_until": flag.get("blocked_until", ""),
+        })
     return {"users": out}
+
+@app.post("/api/admin/users/{user_id}/flag")
+def flag_user_profile(user_id: str, reason: str = "", role: str = Depends(moderation_role)):
+    data = user_data()
+    u = next((x for x in data.get("users", []) if x.get("id") == user_id), None)
+    if not u:
+        raise HTTPException(status_code=404, detail="用户未找到")
+    deadline_ts = time.time() + FLAG_WINDOW_DAYS * 86400
+    u["flag"] = {"flagged": True, "reason": reason.strip() or "实名信息与实际不符", "flagged_at": time.strftime("%Y-%m-%d %H:%M"), "flagged_ts": time.time(), "deadline": time.strftime("%Y-%m-%d %H:%M", time.localtime(deadline_ts)), "deadline_ts": deadline_ts}
+    write_data("users.json", data)
+    deadline_str = u["flag"]["deadline"]
+    notify(user_id, f"管理员审核发现你的实名资料可能不实：{u['flag']['reason']}。请在 {deadline_str} 前进入「个人主页 → 基本信息 → 编辑」修改资料。逾期未修改，账号将被限制登录 30 天。", "urgent")
+    audit(role, "profile.flag", "user", user_id, u["flag"]["reason"])
+    return {"status": "ok", "flag": u["flag"]}
+
+@app.post("/api/admin/users/{user_id}/unflag")
+def unflag_user_profile(user_id: str, role: str = Depends(moderation_role)):
+    data = user_data()
+    u = next((x for x in data.get("users", []) if x.get("id") == user_id), None)
+    if not u:
+        raise HTTPException(status_code=404, detail="用户未找到")
+    u["flag"] = None
+    write_data("users.json", data)
+    notify(user_id, "管理员已确认你的实名资料无误，审核疑问标记已解除。", "normal")
+    audit(role, "profile.unflag", "user", user_id, "")
+    return {"status": "ok"}
 
 # ─── Static files (must be last) ───
 app.mount("/media", StaticFiles(directory=UPLOAD_DIR), name="media")
