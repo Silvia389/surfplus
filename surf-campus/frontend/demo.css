@@ -1,5 +1,5 @@
 :root{color-scheme:light;--canvas:#f4f5f2;--surface:#ffffff;--surface-soft:#eef1ed;--ink:#18201b;--ink-2:#4e5a52;--ink-3:#7c877f;--line:#dde2dc;--line-strong:#c8d0c9;--green:#176341;--green-strong:#0f4c32;--green-soft:#dfeee5;--blue:#236984;--blue-soft:#deedf2;--red:#a63f35;--red-soft:#f5e3df;--amber:#875c13;--amber-soft:#f4ead4;--shadow-popover:0 18px 50px rgba(25,35,29,.14);--ease-out:cubic-bezier(.23,1,.32,1);font:100%/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif}
-:root[data-theme="dark"]{color-scheme:dark;--canvas:#121714;--surface:#1a211d;--surface-soft:#232d27;--ink:#edf3ee;--ink-2:#bdc9c0;--ink-3:#89988e;--line:#344139;--line-strong:#526158;--green:#7bc39a;--green-strong:#9cdbb5;--green-soft:#234334;--blue:#8bc5d9;--blue-soft:#213d46;--red:#f49a8c;--red-soft:#4a2926;--amber:#e6bd70;--amber-soft:#46381f;--shadow-popover:0 18px 50px rgba(0,0,0,.34)}
+:root[data-theme="dark"]{color-scheme:dark;--canvas:#000000;--surface:#0a0a0a;--surface-soft:#161616;--ink:#ffffff;--ink-2:#d9d9d9;--ink-3:#a3a3a3;--line:rgba(255,255,255,.45);--line-strong:rgba(255,255,255,.8);--green:#7bc39a;--green-strong:#9cdbb5;--green-soft:#1d3b2d;--blue:#8bc5d9;--blue-soft:#1e3a42;--red:#f49a8c;--red-soft:#42251f;--amber:#e6bd70;--amber-soft:#3d3218;--shadow-popover:0 18px 50px rgba(0,0,0,.6)}
 *{box-sizing:border-box;margin:0}
 html{overflow-y:scroll}
 body{min-height:100vh;background:var(--canvas);color:var(--ink)}
@@ -9,6 +9,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px soli
 svg{width:18px;height:18px;stroke-width:1.8}
 .app-shell{display:grid;grid-template-columns:224px minmax(516px,760px) 380px;width:min(1364px,100%);min-height:100vh;margin:0 auto}
 .sidebar{position:sticky;top:0;display:flex;flex-direction:column;height:100vh;padding:24px 16px 18px;border-right:1px solid var(--line);background:rgba(250,251,248,.92);backdrop-filter:blur(20px)}
+.sidebar-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sidebar-top .brand{flex:1;min-width:0;justify-content:flex-start}
+/* Mobile-only buttons hidden by default on desktop; @media(max-width:800px) flips to display:grid */
+/* 特异性 ≥ .icon-button 才能覆盖其 inline-grid 默认值 */
+.icon-button.mobile-menu-btn{display:none}
+.sidebar-collapse{display:none}
 .brand,.mobile-brand{display:flex;align-items:center;gap:10px;padding:0;border:0;background:transparent;cursor:pointer;text-align:left}
 .brand-mark{display:grid;place-items:center;width:31px;height:31px;border-radius:8px;background:var(--green-strong);color:#fff;font-size:16px;font-weight:780}
 .brand strong{font-size:15px}.brand small{color:var(--ink-3);font-size:10px}
@@ -699,20 +705,28 @@ kbd{padding:2px 6px;border:1px solid var(--line);border-radius:5px;background:va
 /* Responsive */
 @media(max-width:1120px){.app-shell{grid-template-columns:210px minmax(540px,760px);justify-content:center}.context-rail{display:none}.main-column{border-right:0}}
 @media(max-width:800px){
-body{padding-bottom:68px}.app-shell{display:block;width:100%}.sidebar{display:none}.main-column{width:100%;min-height:100vh}
-.topbar{min-height:61px;padding:10px 14px}.mobile-brand{display:flex}.global-search kbd{display:none}
+.app-shell{display:block;width:100%}.main-column{width:100%;min-height:100vh}
+.sidebar{position:fixed;top:0;left:0;bottom:0;z-index:70;width:min(80vw,300px);padding:16px 14px 18px;transform:translateX(-104%);transition:transform .24s ease;box-shadow:0 0 44px rgba(15,22,18,.24)}
+.app-shell.sidebar-open .sidebar{transform:none}
+.sidebar-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sidebar-top .brand{flex:1;min-width:0;justify-content:flex-start}
+.sidebar-collapse{place-items:center;flex:0 0 auto;width:34px;height:34px;border:1px solid var(--line);border-radius:9px;background:var(--surface-soft);color:var(--ink-2);cursor:pointer}
+.sidebar-collapse svg{width:16px;height:16px}
+.sidebar-backdrop{position:fixed;inset:0;z-index:65;background:rgba(12,17,14,.48);backdrop-filter:blur(2px)}
+.icon-button.mobile-menu-btn{display:grid}
+.sidebar-collapse{display:grid}
+.context-rail{display:none}
+.topbar{min-height:61px;padding:10px 12px;gap:8px}.mobile-brand{display:flex}.mobile-brand strong{display:none}.global-search kbd{display:none}
+.icon-button{width:32px;height:32px;min-width:32px}.top-actions{gap:6px}.top-actions .lang-toggle-btn{padding:0}.top-actions .lang-label{font-size:10px}
+.global-search{flex:1 1 auto;min-width:90px}
 .page-header{padding:19px 16px 13px}.page-header h1{font-size:21px}
 .page-toolbar{padding:10px 14px;gap:8px}
 .category-tabs{margin:0 12px 14px}.sub-tag-cloud{padding:0 12px}.filter-bar-enhanced{margin:0 12px 14px;padding:10px 12px}
 .flash-list{padding:0 12px}.detail-overlay{padding:0 12px}.ai-composer-trigger{margin:0 12px 18px}.ai-composer-modal{margin:0 12px 18px}
 .flash-card-header{padding:14px 14px 10px}.flash-initiator,.flash-actions,.flash-apply-form,.ai-greet-panel{padding:8px 12px}
 .recruit-grid{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}.member-grid{grid-template-columns:1fr}.comp-info-grid{grid-template-columns:1fr}.req-cards{grid-template-columns:1fr}
-.mobile-nav{position:fixed;z-index:40;right:0;bottom:0;left:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));min-height:64px;padding:5px 8px max(5px,env(safe-area-inset-bottom));border-top:1px solid rgba(209,216,210,.92);background:rgba(250,251,248,.92);backdrop-filter:blur(20px)}
-.mobile-nav button{display:grid;place-items:center;align-content:center;gap:2px;border:0;background:transparent;color:var(--ink-3);font-size:9px}
-.mobile-nav button.is-active{color:var(--green-strong)}
-.mobile-nav .mobile-compose{align-self:start;width:42px;height:42px;margin:-15px auto 0;border-radius:50%;background:var(--green-strong);color:#fff;box-shadow:0 6px 18px rgba(15,76,50,.24)}
 .calendar-panel{margin:0 12px 14px}.my-events-bar{margin:0 12px 14px}.simple-row{padding:12px 14px}.row-actions{flex-direction:column}
-.detail-hero,.detail-section{padding:16px}.toast-region{right:16px;bottom:82px}.event-row-enhanced{padding:12px 14px}
+.detail-hero,.detail-section{padding:16px}.toast-region{right:16px;bottom:24px}.event-row-enhanced{padding:12px 14px}
 .opp-search-bar{margin:0 12px 10px}.comp-banner-section{margin:0 12px 14px}.comp-banner-card{width:240px;padding:12px 14px}
 .comp-scroll-arrow{width:28px;height:28px}.comp-scroll-arrow.left{left:-8px}.comp-scroll-arrow.right{right:-8px}
 .chat-messages{max-height:40vh}.chat-bubble{max-width:85%}
@@ -1993,59 +2007,68 @@ body.auth-pending .app-shell, body.auth-pending .mobile-nav { display: none; }
 .field-label { font-size: 11px; font-weight: 680; }
 .dialog-note { margin: 0; color: var(--ink-2); font-size: 11px; line-height: 1.55; }
 
-/* ── 深色模式：侧边栏柔和深色（黑底白字白框） ── */
-:root[data-theme="dark"] .sidebar{background:rgba(18,23,20,.96);border-right-color:#2c3630}
-:root[data-theme="dark"] .sidebar .nav-item{color:#c6d2c8}
-:root[data-theme="dark"] .sidebar .nav-item:hover{background:#242e28;color:#edf3ee}
-:root[data-theme="dark"] .sidebar .nav-item.is-active{background:#234334;color:#9cdbb5}
-:root[data-theme="dark"] .sidebar .profile-button{background:#1a211d;border-color:#344139}
-:root[data-theme="dark"] .sidebar .profile-button small{color:#89988e}
-:root[data-theme="dark"] .sidebar .identity-note{color:#bdc9c0}
-:root[data-theme="dark"] .sidebar .identity-note small{color:#89988e}
-:root[data-theme="dark"] .sidebar .brand small{color:#89988e}
-:root[data-theme="dark"] .topbar{background:rgba(18,23,20,.86)}
-:root[data-theme="dark"] .global-search{background:rgba(26,33,29,.9)}
-:root[data-theme="dark"] .icon-button{background:rgba(26,33,29,.9)}
+/* ── 深色模式：全黑底 + 白字白框 ── */
+:root[data-theme="dark"] .sidebar{background:rgba(0,0,0,.97);border-right-color:rgba(255,255,255,.45)}
+:root[data-theme="dark"] .sidebar .nav-item{color:#e8e8e8}
+:root[data-theme="dark"] .sidebar .nav-item:hover{background:#1a1a1a;color:#fff}
+:root[data-theme="dark"] .sidebar .nav-item.is-active{background:#1d3b2d;color:#9cdbb5;border-color:rgba(255,255,255,.5)}
+:root[data-theme="dark"] .sidebar .profile-button{background:#0f0f0f;border-color:rgba(255,255,255,.45)}
+:root[data-theme="dark"] .sidebar .profile-button small{color:#a3a3a3}
+:root[data-theme="dark"] .sidebar .identity-note{color:#d9d9d9}
+:root[data-theme="dark"] .sidebar .identity-note small{color:#a3a3a3}
+:root[data-theme="dark"] .sidebar .brand small{color:#a3a3a3}
+:root[data-theme="dark"] .topbar{background:rgba(0,0,0,.88)}
+:root[data-theme="dark"] .global-search{background:#111111;border-color:rgba(255,255,255,.45)}
+:root[data-theme="dark"] .icon-button{background:#111111;border-color:rgba(255,255,255,.45)}
 
-/* ── 深色模式：右侧实时滚动栏（热点/日历/精选海报，柔和黑底白字白框） ── */
-:root[data-theme="dark"] .hot-module{background:#1a211d;border-color:#313c35;box-shadow:none}
-:root[data-theme="dark"] .hot-head-title{color:#edf3ee}
-:root[data-theme="dark"] .hot-head-title .lucide,:root[data-theme="dark"] .hot-head-title svg{color:#9A8FA8}
-:root[data-theme="dark"] .hot-head-more{color:#89988e}
-:root[data-theme="dark"] .hot-head-more:hover{color:#edf3ee;background:#242e28}
-:root[data-theme="dark"] .hot-filter-btn{color:#89988e}
-:root[data-theme="dark"] .hot-filter-btn:hover{color:#edf3ee;background:#242e28}
-:root[data-theme="dark"] .hot-filter-btn.active{color:#edf3ee;background:#242e28}
-:root[data-theme="dark"] .hot-item{border-bottom-color:#26302a}
-:root[data-theme="dark"] .hot-item:hover{background:#202924}
-:root[data-theme="dark"] .hot-title{color:#dfe9e2}
-:root[data-theme="dark"] .hot-item-time{color:#6f7d74}
-:root[data-theme="dark"] .hot-empty{color:#89988e}
-:root[data-theme="dark"] .hot-skeleton-block{background:#232d27}
-:root[data-theme="dark"] .cal-module{background:#161d19;border-color:#2c3630}
-:root[data-theme="dark"] .cal-head{color:#edf3ee}
-:root[data-theme="dark"] .cal-head .lucide,:root[data-theme="dark"] .cal-head svg{color:#9A8FA8}
-:root[data-theme="dark"] .cal-divider{border-top-color:#2c3630}
-:root[data-theme="dark"] .cal-evt{color:#dfe9e2}
-:root[data-theme="dark"] .cal-evt:hover{color:#edf3ee}
-:root[data-theme="dark"] .cal-evt-time{color:#89988e}
-:root[data-theme="dark"] .cal-empty{color:#89988e}
-:root[data-theme="dark"] .cal-empty:hover{color:#bdc9c0}
-:root[data-theme="dark"] .cal-more{color:#89988e}
-:root[data-theme="dark"] .cal-more:hover{color:#bdc9c0}
-:root[data-theme="dark"] .cal-skeleton-block{background:#232d27}
-:root[data-theme="dark"] .poster-module{background:#161d19;border-color:#2c3630}
-:root[data-theme="dark"] .poster-head-title{color:#edf3ee}
-:root[data-theme="dark"] .poster-head-title i,:root[data-theme="dark"] .poster-head-title svg{color:#9A8FA8}
-:root[data-theme="dark"] .poster-viewport{background:#1a211d}
-:root[data-theme="dark"] .poster-card{background:#1f2823}
-:root[data-theme="dark"] .poster-title{color:#e6eee8}
-:root[data-theme="dark"] .poster-sub{color:#89988e}
-:root[data-theme="dark"] .poster-arrow{background:rgba(26,33,29,.92);color:#bdc9c0}
-:root[data-theme="dark"] .poster-arrow:hover{background:#242e28;color:#edf3ee}
-:root[data-theme="dark"] .poster-dot{background:#3a453d}
-:root[data-theme="dark"] .poster-dot.active{background:#9A8FA8}
-:root[data-theme="dark"] .poster-skeleton{background:#232d27}
+/* ── 深色模式：右侧实时滚动栏（黑底白框） ── */
+:root[data-theme="dark"] .hot-module{background:#0a0a0a;border-color:rgba(255,255,255,.45);box-shadow:none}
+:root[data-theme="dark"] .hot-head-title{color:#fff}
+:root[data-theme="dark"] .hot-head-title .lucide,:root[data-theme="dark"] .hot-head-title svg{color:#cfcfcf}
+:root[data-theme="dark"] .hot-head-more{color:#a3a3a3}
+:root[data-theme="dark"] .hot-head-more:hover{color:#fff;background:#1a1a1a}
+:root[data-theme="dark"] .hot-filter-btn{color:#a3a3a3}
+:root[data-theme="dark"] .hot-filter-btn:hover{color:#fff;background:#1a1a1a}
+:root[data-theme="dark"] .hot-filter-btn.active{color:#fff;background:#1a1a1a}
+:root[data-theme="dark"] .hot-item{border-bottom-color:rgba(255,255,255,.28)}
+:root[data-theme="dark"] .hot-item:hover{background:#141414}
+:root[data-theme="dark"] .hot-title{color:#f0f0f0}
+:root[data-theme="dark"] .hot-item-time{color:#8f8f8f}
+:root[data-theme="dark"] .hot-empty{color:#a3a3a3}
+:root[data-theme="dark"] .hot-skeleton-block{background:#1c1c1c}
+:root[data-theme="dark"] .cal-module{background:#0a0a0a;border-color:rgba(255,255,255,.45)}
+:root[data-theme="dark"] .cal-head{color:#fff}
+:root[data-theme="dark"] .cal-head .lucide,:root[data-theme="dark"] .cal-head svg{color:#cfcfcf}
+:root[data-theme="dark"] .cal-divider{border-top-color:rgba(255,255,255,.3)}
+:root[data-theme="dark"] .cal-evt{color:#f0f0f0}
+:root[data-theme="dark"] .cal-evt:hover{color:#fff}
+:root[data-theme="dark"] .cal-evt-time{color:#a3a3a3}
+:root[data-theme="dark"] .cal-empty{color:#a3a3a3}
+:root[data-theme="dark"] .cal-empty:hover{color:#d9d9d9}
+:root[data-theme="dark"] .cal-more{color:#a3a3a3}
+:root[data-theme="dark"] .cal-more:hover{color:#d9d9d9}
+:root[data-theme="dark"] .cal-skeleton-block{background:#1c1c1c}
+:root[data-theme="dark"] .poster-module{background:#0a0a0a;border-color:rgba(255,255,255,.45)}
+:root[data-theme="dark"] .poster-head-title{color:#fff}
+:root[data-theme="dark"] .poster-head-title i,:root[data-theme="dark"] .poster-head-title svg{color:#cfcfcf}
+:root[data-theme="dark"] .poster-viewport{background:#111111}
+:root[data-theme="dark"] .poster-card{background:#161616;border-color:rgba(255,255,255,.35)}
+:root[data-theme="dark"] .poster-title{color:#f0f0f0}
+:root[data-theme="dark"] .poster-sub{color:#a3a3a3}
+:root[data-theme="dark"] .poster-arrow{background:rgba(17,17,17,.92);color:#d9d9d9;border-color:rgba(255,255,255,.4)}
+:root[data-theme="dark"] .poster-arrow:hover{background:#1f1f1f;color:#fff}
+:root[data-theme="dark"] .poster-dot{background:#3a3a3a}
+:root[data-theme="dark"] .poster-dot.active{background:#e0e0e0}
+:root[data-theme="dark"] .poster-skeleton{background:#1c1c1c}
+/* ── 深色模式：帖子/通知卡片背景（黑底白字白框） ── */
+:root[data-theme="dark"] .post{background:#0a0a0a;color:#fff}
+:root[data-theme="dark"] .post:hover{background:#141414}
+:root[data-theme="dark"] .th-feed .post{background:#0a0a0a}
+:root[data-theme="dark"] .notif-item.level-normal{background:#0a0a0a;border-color:rgba(255,255,255,.45)}
+:root[data-theme="dark"] .notif-item.level-urgent{background:#1c1208;border-color:rgba(224,168,76,.5)}
+
+:root[data-theme="dark"] .sidebar-collapse{background:#141414;border-color:rgba(255,255,255,.4);color:#e6e6e6}
+:root[data-theme="dark"] .sidebar-backdrop{background:rgba(0,0,0,.62)}
 
 /* ── 积分规则弹窗：金色高级风格 ── */
 .points-intro-modal{width:min(430px,95vw);border:1px solid #e3c987;border-radius:16px;background:linear-gradient(170deg,#fffdf6 0%,#faf4e3 100%);box-shadow:0 24px 64px rgba(84,63,17,.22),0 0 0 4px rgba(214,178,94,.12);overflow:hidden}
@@ -2082,3 +2105,6 @@ body.auth-pending .app-shell, body.auth-pending .mobile-nav { display: none; }
 .points-lock-hero svg{width:32px;height:32px}
 :root[data-theme="dark"] .points-lock-hero{color:#2e230a;background:linear-gradient(150deg,#e6c87e,#b8933f)}
 
+/* ═══ Mobile 可折叠侧边栏——深色覆盖 ═══ */
+:root[data-theme="dark"] .sidebar-collapse{background:#141414;border-color:rgba(255,255,255,.4);color:#e6e6e6}
+:root[data-theme="dark"] .sidebar-backdrop{background:rgba(0,0,0,.62)}
