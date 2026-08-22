@@ -202,20 +202,81 @@ def dev_fixed_phone_login_enabled(request: Request):
     host = (request.client.host if request.client else "").lower()
     return host in {"127.0.0.1", "::1", "localhost"}
 
-def current_auth_session():
-    return read_data("auth.json", {}).get("session", {"phone_authenticated": False, "email_authenticated": False, "phone_masked": "", "campus_verified": False, "user_id": "", "name": "", "campus_account": ""})
+# ─── Cookie Token 多用户 Session（修复：不同用户资料串号问题）───
+# 旧实现：auth.json 只有一个全局 "session" 字段，任何人登录都会覆盖它，
+# 导致前一个用户的资料出现在下一个登录用户的界面上。
+# 新实现：登录时为每个浏览器签发独立 token（HttpOnly cookie），服务端
+# auth.json 的 "sessions": {token: session} 字典按 token 隔离各用户会话。
+SESSION_COOKIE = "surf_session"
+SESSION_TTL_SECONDS = 30 * 24 * 3600  # 会话有效期 30 天
 
 def auth_data():
     data = read_data("auth.json", {})
-    data.setdefault("session", current_auth_session())
     data.setdefault("accounts", [])
+    data.setdefault("sessions", {})
     return data
 
+def create_session_entry(session):
+    """登录成功后调用：生成新 token 并存入 sessions 字典，返回 token。"""
+    data = auth_data()
+    store = data["sessions"]
+    now = time.time()
+    for t in [t for t, s in store.items() if now - s.get("_ts", 0) > SESSION_TTL_SECONDS]:
+        del store[t]
+    token = secrets.token_hex(24)
+    entry = dict(session)
+    entry["_ts"] = now
+    store[token] = entry
+    write_data("auth.json", data)
+    return token
+
+def session_from_cookie(request: Request):
+    """从请求 cookie 中解析当前浏览器的会话；无效/过期返回 None。"""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    entry = read_data("auth.json", {}).get("sessions", {}).get(token)
+    if not entry:
+        return None
+    if time.time() - entry.get("_ts", 0) > SESSION_TTL_SECONDS:
+        return None
+    return {k: v for k, v in entry.items() if not k.startswith("_")}
+
+def update_session_entry(request: Request, session):
+    """已登录用户更新自己 token 对应的会话（改名/绑定邮箱等）。"""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return
+    data = auth_data()
+    entry = data["sessions"].get(token)
+    if entry is None:
+        return
+    entry.update({k: v for k, v in session.items() if not k.startswith("_")})
+    entry["_ts"] = time.time()
+    write_data("auth.json", data)
+
+def delete_session_entry(request: Request):
+    """退出登录：删除当前浏览器的 token 会话。"""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return
+    data = auth_data()
+    data["sessions"].pop(token, None)
+    write_data("auth.json", data)
+
+def set_session_cookie(response, token):
+    response.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL_SECONDS, httponly=True, samesite="lax", path="/")
+
+def clear_session_cookie(response):
+    response.delete_cookie(SESSION_COOKIE, path="/")
+
 def auth_session_for_request(request: Request):
-    session = current_auth_session()
-    if dev_auth_bypass_enabled(request) and not session.get("campus_verified"):
+    session = session_from_cookie(request)
+    if session:
+        return session
+    if dev_auth_bypass_enabled(request):
         return dev_auth_session()
-    return session
+    return {"phone_authenticated": False, "email_authenticated": False, "phone_masked": "", "campus_verified": False, "user_id": "", "name": "", "campus_account": ""}
 
 def authenticated_session(request: Request):
     session = auth_session_for_request(request)
@@ -224,12 +285,7 @@ def authenticated_session(request: Request):
     return session
 
 def session_user_id(session):
-    return str(session.get("user_id") or "u001")
-
-def save_auth_session(session):
-    data = auth_data()
-    data["session"] = session
-    write_data("auth.json", data)
+    return str(session.get("user_id") or "")
 
 def campus_verified_session(request: Request):
     session = auth_session_for_request(request)
@@ -516,18 +572,22 @@ def login_by_phone(req: PhoneLoginRequest, request: Request):
             raise HTTPException(status_code=403, detail=block_msg)
         session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
         persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
-        save_auth_session(session)
+        token = create_session_entry(session)
         log_login(session["user_id"], session["name"], "phone", f"演示验证码登录 {session['phone_masked']}")
-        return auth_response(session)
+        resp = JSONResponse(content=auth_response(session, request))
+        set_session_cookie(resp, token)
+        return resp
     consume_verification_code("sms", digits, req.code)
     block_msg = check_profile_block(f"phone_{digits}")
     if block_msg:
         raise HTTPException(status_code=403, detail=block_msg)
     session = {"phone_authenticated": True, "email_authenticated": False, "phone_masked": f"{digits[:3]}****{digits[-4:]}", "campus_verified": False, "user_id": f"phone_{digits}", "name": "手机访客", "campus_account": ""}
     persist_user_profile(user_id=session["user_id"], name="手机访客", phone=digits)
-    save_auth_session(session)
+    token = create_session_entry(session)
     log_login(session["user_id"], session["name"], "phone", f"短信验证码登录 {session['phone_masked']}")
-    return auth_response(session)
+    resp = JSONResponse(content=auth_response(session, request))
+    set_session_cookie(resp, token)
+    return resp
 
 @app.post("/api/auth/email/code")
 def send_email_code(req: EmailCodeRequest):
@@ -549,25 +609,27 @@ def login_by_email(req: EmailLoginRequest):
         raise HTTPException(status_code=403, detail=block_msg)
     session = {"phone_authenticated": True, "email_authenticated": True, "phone_masked": "", "campus_verified": is_campus, "user_id": f"email_{name}", "name": name.replace(".", " ").title(), "campus_account": email if is_campus else "", "email": email}
     persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
-    save_auth_session(session)
+    token = create_session_entry(session)
     log_login(session["user_id"], session["name"], "email", f"邮箱密码登录 {email}")
-    return auth_response(session)
+    resp = JSONResponse(content=auth_response(session))
+    set_session_cookie(resp, token)
+    return resp
 
 @app.post("/api/auth/register")
-def register_by_email(req: EmailRegisterRequest):
+def register_by_email(req: EmailRegisterRequest, request: Request):
     email = verification_target("email", req.email)
     consume_verification_code("email", email, req.code)
     data = auth_data()
     if any(a.get("email") == email for a in data.get("accounts", [])):
         raise HTTPException(status_code=409, detail="该邮箱已经注册")
-    salt = secrets.token_hex(16)
     name = re.sub(r"[^A-Za-z0-9_-]", "", email.split("@")[0])[:40] or "student"
     session = {"phone_authenticated": True, "email_authenticated": True, "phone_masked": "", "campus_verified": email.endswith(SCHOOL_EMAIL_SUFFIXES), "user_id": f"email_{name}", "name": name.title(), "campus_account": email if email.endswith(SCHOOL_EMAIL_SUFFIXES) else "", "email": email}
     persist_user_profile(user_id=session["user_id"], name=session["name"], email=email)
-    data["session"] = session
-    write_data("auth.json", data)
+    token = create_session_entry(session)
     log_login(session["user_id"], session["name"], "email", f"邮箱注册 {email}")
-    return auth_response(session)
+    resp = JSONResponse(content=auth_response(session))
+    set_session_cookie(resp, token)
+    return resp
 
 @app.post("/api/auth/campus-email/code")
 def send_campus_email_code(req: SchoolEmailBindRequest, request: Request):
@@ -583,27 +645,30 @@ def bind_campus_email(req: SchoolEmailBindRequest, request: Request):
     consume_verification_code("campus-email", email, req.code)
     session.update({"campus_verified": True, "email_authenticated": True, "campus_account": email, "email": email})
     persist_user_profile(user_id=session_user_id(session), name=session.get("name", "校园成员"), email=email)
-    save_auth_session(session)
+    update_session_entry(request, session)
     return auth_response(session)
 
 @app.delete("/api/auth/session")
-def logout():
-    save_auth_session({"phone_authenticated": False, "email_authenticated": False, "phone_masked": "", "campus_verified": False, "user_id": "", "name": "", "campus_account": ""})
-    return auth_response({"phone_authenticated": False})
+def logout(request: Request):
+    delete_session_entry(request)
+    resp = JSONResponse(content=auth_response({"phone_authenticated": False}))
+    clear_session_cookie(resp)
+    return resp
 
 @app.get("/api/auth/xjtlu/config")
 def xjtlu_config():
     return {"mock_binding_enabled": os.environ.get("SURF_ENABLE_MOCK_AUTH", "true").lower() == "true", "configured": False}
 
 @app.post("/api/auth/xjtlu/mock-bind")
-def mock_bind(req: MockCampusBindRequest, session: dict = Depends(authenticated_session)):
+def mock_bind(req: MockCampusBindRequest, request: Request):
     if os.environ.get("SURF_ENABLE_MOCK_AUTH", "true").lower() != "true":
         raise HTTPException(status_code=404, detail="Mock 绑定已关闭")
+    session = authenticated_session(request)
     account = req.account.strip().lower()
     if not account.endswith(SCHOOL_EMAIL_SUFFIXES):
         raise HTTPException(status_code=400, detail="只接受 XJTLU 校园邮箱")
     session.update({"campus_verified": True, "user_id": "u001", "name": "张三", "campus_account": account})
-    save_auth_session(session)
+    update_session_entry(request, session)
     return auth_response(session)
 
 # ─── AI Chat ───
@@ -1243,7 +1308,7 @@ def update_profile(req: ProfileUpdate, request: Request):
         profile["flag"] = None
         notify(session_user_id(session), "你已修改实名资料，此前的审核疑问标记已自动解除。感谢配合！", "normal")
     write_data("users.json", data)
-    save_auth_session({**session, "name": req.username})
+    update_session_entry(request, {**session, "name": req.username})
     return public_profile(session_user_id(session), req.username)
 
 @app.post("/api/profile/tags")

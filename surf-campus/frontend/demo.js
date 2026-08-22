@@ -2601,7 +2601,7 @@ function rememberAccount(result, persistent) {
 /* ═══ 个人资料持久化：服务端 users.json + localStorage 备份双保险 ═══
    Render 免费版重启会丢临时盘数据（users.json 被重置），同设备再次登录时
    用 localStorage 备份恢复资料，并回写到服务端。 */
-const PROFILE_BACKUP_KEY = 'surf-profile-backup';
+const PROFILE_BACKUP_KEY_PREFIX = 'surf-profile-backup';
 
 function avatarIconName(key) {
   var meta = AVATAR_META[key];
@@ -2612,11 +2612,13 @@ function userAvatarHtml(key, style) {
   return '<span class="' + cls + '" style="display:grid;place-items:center;overflow:hidden;' + (style || '') + '"><i data-lucide="' + avatarIconName(key) + '" style="width:58%;height:58%"></i></span>';
 }
 function saveProfileBackup(p) {
-  try { localStorage.setItem(PROFILE_BACKUP_KEY, JSON.stringify(p)); } catch (e) {}
+  if (!p || !p.user_id) return;
+  try { localStorage.setItem(PROFILE_BACKUP_KEY_PREFIX + ':' + p.user_id, JSON.stringify(p)); } catch (e) {}
 }
 function readProfileBackup(userId) {
+  if (!userId) return null;
   try {
-    var p = JSON.parse(localStorage.getItem(PROFILE_BACKUP_KEY) || 'null');
+    var p = JSON.parse(localStorage.getItem(PROFILE_BACKUP_KEY_PREFIX + ':' + userId) || 'null');
     if (p && p.user_id === userId && p.profile_complete) return p;
   } catch (e) {}
   return null;
