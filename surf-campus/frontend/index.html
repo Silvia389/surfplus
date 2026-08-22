@@ -157,8 +157,20 @@
       </div>
       <label class="field-label" for="onboarding-username">用户名</label>
       <input class="field" id="onboarding-username" name="username" maxlength="24" minlength="2" placeholder="别人会这样称呼你" required>
-      <label class="field-label" for="onboarding-bio">简介 <span class="field-hint">可选</span></label>
-      <textarea class="field" id="onboarding-bio" name="bio" maxlength="160" rows="3" placeholder="一句话介绍你的兴趣或正在做的事"></textarea>
+      <label class="field-label" for="onboarding-realname">真实姓名 <span class="field-hint">用于实名展示，管理员可见</span></label>
+      <input class="field" id="onboarding-realname" name="realname" maxlength="40" placeholder="请填写真实姓名" required>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="field-label" for="onboarding-major">专业</label>
+        <input class="field" id="onboarding-major" name="major" maxlength="60" placeholder="如：计算机科学与技术"></div>
+        <div><label class="field-label" for="onboarding-year">年级</label>
+        <input class="field" id="onboarding-year" name="year" maxlength="20" placeholder="如：大三"></div>
+      </div>
+      <label class="field-label" for="onboarding-clazz">班级 <span class="field-hint">可选</span></label>
+      <input class="field" id="onboarding-clazz" name="clazz" maxlength="40" placeholder="如：计算机2101">
+      <label class="field-label" for="onboarding-email">邮箱 <span class="field-hint">可选</span></label>
+      <input class="field" id="onboarding-email" name="email" type="email" maxlength="120" placeholder="you@example.com">
+      <label class="field-label" for="onboarding-bio">简介 <span class="field-hint">兴趣爱好、优势、MBTI...</span></label>
+      <textarea class="field" id="onboarding-bio" name="bio" maxlength="160" rows="3" placeholder="兴趣爱好、优势、MBTI...（AI 将根据简介为你生成个性标签）"></textarea>
       <label class="field-label" for="onboarding-birthday">生日 <span class="field-hint">可选</span></label>
       <input class="field" id="onboarding-birthday" name="birthday" type="date">
       <p class="login-message" id="profile-onboarding-message" aria-live="polite"></p>
