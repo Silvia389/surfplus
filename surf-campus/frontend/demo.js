@@ -2071,6 +2071,19 @@ function renderOpportunities(){
   $('view-root').innerHTML=htm;setupCompBannerScroll();if(state.oppShowPublish)renderPublishModal();refreshIcons()
 }
 
+/* ═══ Mobile 可折叠侧边栏（iPad 式抽屉） ═══ */
+function toggleMobileSidebar(force){
+  var shell=document.getElementById('app-shell'),b=document.getElementById('sidebar-backdrop');
+  if(!shell||!b)return;
+  var open=typeof force==='boolean'?force:!shell.classList.contains('sidebar-open');
+  shell.classList.toggle('sidebar-open',open);
+  b.hidden=!open;
+  document.body.style.overflow=open?'hidden':'';
+}
+function closeMobileSidebar(){var shell=document.getElementById('app-shell');if(shell&&shell.classList.contains('sidebar-open'))toggleMobileSidebar(false)}
+/* 兼容旧调用名 */
+function closeMobileDrawer(){closeMobileSidebar()}
+
 /* ═══ EVENT HANDLERS ═══ */
 document.addEventListener('click',e=>{
   if(e.target.closest('#theme-toggle')){var r=document.documentElement,d=r.dataset.theme==='dark';r.dataset.theme=d?'light':'dark';var ic=document.querySelector('#theme-toggle i');if(ic)ic.setAttribute('data-lucide',d?'moon':'sun');refreshIcons();return}
@@ -2128,12 +2141,15 @@ document.addEventListener('click',e=>{
     else if(pk==='guide-feed'){state.route='feed';render()}
     else if(pk==='guide-evt'){state.route='events';render()}
     return}
-  var rt=e.target.closest('[data-route]');if(rt&&!e.target.closest('button[data-opp-greet],button[data-opp-apply],button[data-evt-reg],button[data-evt-cancel]')){routeTo(rt.dataset.route);return}
+  var rt=e.target.closest('[data-route]');if(rt&&!e.target.closest('button[data-opp-greet],button[data-opp-apply],button[data-evt-reg],button[data-evt-cancel]')){closeMobileSidebar();routeTo(rt.dataset.route);return}
+  // Mobile 侧边栏开关
+  if(e.target.closest('#mobile-menu-btn')){toggleMobileSidebar();return}
+  if(e.target.closest('#sidebar-collapse')||e.target.closest('#sidebar-backdrop')){toggleMobileSidebar(false);return}
   // Sidebar self profile
-  if(e.target.closest('#sidebar-profile-btn')){state.profileUser={id:'me',name:'张三',bio:'计算机科学·大三 | 喜欢AI和开源 | 竞赛选手'};state.feedScrollY=window.scrollY;render();return}
+  if(e.target.closest('#sidebar-profile-btn')){closeMobileSidebar();state.profileUser={id:'me',name:'张三',bio:'计算机科学·大三 | 喜欢AI和开源 | 竞赛选手'};state.feedScrollY=window.scrollY;render();return}
   // Feed
-  if(e.target.closest('#sidebar-compose')){state.route='feed';state.profileUser=null;state.selectedPost=null;state.composing=true;state.composerText='';state.composerTitle='';state.composerTags='';state.composerAnonymous=false;state.composeMedia=[];render();window.scrollTo({top:0});return}
-  if(e.target.closest('#sidebar-ai-chat')){openAiChat();return}
+  if(e.target.closest('#sidebar-compose')){closeMobileSidebar();state.route='feed';state.profileUser=null;state.selectedPost=null;state.composing=true;state.composerText='';state.composerTitle='';state.composerTags='';state.composerAnonymous=false;state.composeMedia=[];render();window.scrollTo({top:0});return}
+  if(e.target.closest('#sidebar-ai-chat')){closeMobileSidebar();openAiChat();return}
   if(e.target.closest('#expand-composer')){state.composing=true;state.composerText='';state.composerTitle='';state.composerTags='';state.composerAnonymous=false;render();return}
   if(e.target.closest('#expand-treehole-composer')){state.treeholeComposing=true;state.treeholeText='';render();return}
   if(e.target.closest('[data-add-tag]')){var tg=e.target.closest('[data-add-tag]').dataset.addTag;var cur=state.composerTags||'';state.composerTags=cur?cur+', '+tg:tg;render();setTimeout(()=>{var inp=$('compose-tags');if(inp){inp.focus();inp.selectionStart=inp.value.length}},50);return}
@@ -2493,6 +2509,7 @@ document.addEventListener('change',e=>{
 });
 
 document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeMobileSidebar()}
   if(e.target.id==='opp-search-input'&&e.key==='Escape'){state.oppSearch='';render();return}
   if(e.target.id==='chat-input'&&e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChatMessage();return}
   if(e.target.id==='pf-skills-input'&&e.key==='Enter'){e.preventDefault();var v=e.target.value.trim();if(v&&!state.publishForm.skills.includes(v)){state.publishForm.skills.push(v);e.target.value='';state.oppShowPublish=true;render()}}
