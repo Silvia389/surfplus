@@ -125,7 +125,7 @@ let state={
   resumes:ME_RESUMES.map(r=>({...r})),resumeDefaultId:'rv1',
   homeDefault:'feed',privacyPrefs:{showPosts:true,showBookmarks:true,showResume:true,showActivity:true},
   verifyModal:false,verifyStep:1,verifyForm:{studentId:'2112098',name:'张三',idLast6:'',college:'智能工程学院',role:'student',department:''},
-  editProfileModal:false,editProfileForm:{bio:'计算机科学·大三 | 喜欢AI和开源 | 竞赛选手',email:'zhangsan@student.xjtlu.edu.cn',links:{github:'github.com/zhangsan',blog:'blog.zhangsan.dev'}}
+  editProfileModal:false,editProfileForm:{bio:'',email:'',links:{github:'',blog:''},realName:'',major:'',year:'',clazz:''}
 };
 
 /* ═══ API LAYER ═══ */
@@ -466,6 +466,13 @@ function profileVerifyBadge(){
 }
 function renderProfile(){
   var me=ME_PROFILE,c=profileCounts(),tab=state.profileTab;
+  /* AI 标签懒生成：有简介但还没标签的旧资料，自动请求后端生成一次 */
+  if(state.profile&&state.profile.profile_complete&&state.profile.bio&&!(state.profile.tags||[]).length&&!state.profile._tagsFetched){
+    state.profile._tagsFetched=true;
+    apiFetch('/api/profile/tags',{method:'POST'}).then(function(r){
+      if(r&&r.tags&&r.tags.length){state.profile.tags=r.tags;ME_PROFILE.tags=r.tags;if(state.route==='profile')render()}
+    }).catch(function(){});
+  }
   var hero='<div class="profile-hero">'
     +'<span class="profile-hero-avatar">'+userAvatarHtml(state.profile.avatar||me.avatarKey||'sun','width:72px;height:72px;font-size:28px;margin:0 auto 14px')+'</span>'
     +'<div class="profile-hero-info">'
@@ -630,8 +637,16 @@ function submitVerify(){
 /* ── 编辑资料弹窗 ── */
 function renderEditProfileModal(){
   var ef=state.editProfileForm;
+  var sp=state.profile||{};
+  var val=function(k,fb){return (ef&&ef[k]!==undefined&&ef[k])?ef[k]:(sp[k]!==undefined?sp[k]:(fb||''))};
+  var realName=val('realName',sp.real_name||''),major=val('major',sp.major||''),year=val('year',sp.year||''),clazz=val('clazz',sp.clazz||'');
   var bodyHtml='<div class="edit-form">'
-    +'<label class="field-label">个人简介</label><textarea class="field" id="edit-bio" rows="3" placeholder="介绍一下自己">'+h(ef.bio)+'</textarea>'
+    +'<label class="field-label">真实姓名 <span class="field-hint">用于实名展示，管理员可见</span></label><input class="field" id="edit-realname" value="'+h(realName)+'" maxlength="40" placeholder="请填写真实姓名">'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    +'<div><label class="field-label">专业</label><input class="field" id="edit-major" value="'+h(major)+'" maxlength="60" placeholder="如：计算机科学与技术"></div>'
+    +'<div><label class="field-label">年级</label><input class="field" id="edit-year" value="'+h(year)+'" maxlength="20" placeholder="如：大三"></div></div>'
+    +'<label class="field-label">班级</label><input class="field" id="edit-clazz" value="'+h(clazz)+'" maxlength="40" placeholder="如：计算机2101">'
+    +'<label class="field-label">个人简介 <span class="field-hint">兴趣爱好、优势、MBTI...</span></label><textarea class="field" id="edit-bio" rows="3" placeholder="兴趣爱好、优势、MBTI...（AI 将根据简介为你生成个性标签）">'+h(ef.bio)+'</textarea>'
     +'<label class="field-label">邮箱</label><input class="field" id="edit-email" value="'+h(ef.email)+'">'
     +'<label class="field-label">GitHub</label><input class="field" id="edit-github" value="'+h(ef.links.github)+'" placeholder="github.com/username">'
     +'<label class="field-label">博客 / 个人主页</label><input class="field" id="edit-blog" value="'+h(ef.links.blog)+'" placeholder="blog.xxx.com">'
@@ -644,21 +659,30 @@ function renderEditProfileModal(){
 }
 function saveEditProfile(){
   var ef=state.editProfileForm;
-  var bio=$('edit-bio')?.value.trim(),email=$('edit-email')?.value.trim(),gh=$('edit-github')?.value.trim(),blog=$('edit-blog')?.value.trim();
-  if(bio)ef.bio=bio;if(email)ef.email=email;ef.links.github=gh;ef.links.blog=blog;
-  ME_PROFILE.bio=ef.bio;ME_PROFILE.email=ef.email;ME_PROFILE.links={github:ef.links.github,blog:ef.links.blog};
+  var bio=$('edit-bio')?.value.trim()||'',email=$('edit-email')?.value.trim()||'',gh=$('edit-github')?.value.trim()||'',blog=$('edit-blog')?.value.trim()||'';
+  var rn=$('edit-realname')?.value.trim()||'',major=$('edit-major')?.value.trim()||'',yr=$('edit-year')?.value.trim()||'',clazz=$('edit-clazz')?.value.trim()||'';
+  if(ef){ef.bio=bio;ef.email=email;ef.links={github:gh,blog:blog};ef.realName=rn;ef.major=major;ef.year=yr;ef.clazz=clazz}
+  ME_PROFILE.bio=bio;ME_PROFILE.email=email;ME_PROFILE.links={github:gh,blog:blog};
+  if(rn)ME_PROFILE.name=rn;
+  ME_PROFILE.major=major;ME_PROFILE.grade=yr;ME_PROFILE.clazz=clazz;
   /* 同步进持久化资料（服务端 + 本地备份），任何字段修改都触发保存 */
-  state.profile.bio=ef.bio;
-  state.profile.email=ef.email;
-  state.profile.github=ef.links.github;
-  state.profile.blog=ef.links.blog;
+  state.profile.bio=bio;
+  state.profile.email=email;
+  state.profile.github=gh;
+  state.profile.blog=blog;
+  state.profile.real_name=rn;
+  state.profile.major=major;
+  state.profile.year=yr;
+  state.profile.clazz=clazz;
   state.profile.username=state.profile.username||ME_PROFILE.name;
   state.profile.avatar=state.profile.avatar||ME_PROFILE.avatarKey||'sun';
   state.profile.birthday=state.profile.birthday||'';
   state.profile.profile_complete=true;
   state.profile.user_id=(state.authSession&&state.authSession.user_id)||state.profile.user_id||'';
   saveProfileBackup(state.profile);
-  persistProfileToServer(state.profile);
+  persistProfileToServer(state.profile).then(function(saved){
+    if(saved&&saved.tags&&saved.tags.length){state.profile.tags=saved.tags;ME_PROFILE.tags=saved.tags;if(state.route==='profile')render()}
+  });
   var o=document.getElementById('edit-profile-overlay');if(o)o.remove();
   toast('个人资料已更新');render()
 }
@@ -2583,12 +2607,16 @@ function readProfileBackup(userId) {
 function applyUserProfile(p) {
   if (!p) return;
   state.profile = Object.assign({}, state.profile, p);
-  if (p.username) {
-    state.authSession.name = p.username;
-    ME_PROFILE.name = p.username;
-  }
-  if (typeof p.bio === 'string' && (p.bio || p.profile_complete)) ME_PROFILE.bio = p.bio;
+  var complete = !!(p.profile_complete || state.profile.profile_complete);
+  if (p.username) state.authSession.name = p.username;
+  // 姓名 = 真实姓名优先，其次用户名；资料完成后不再显示演示数据"张三"
+  ME_PROFILE.name = (typeof p.real_name === 'string' && p.real_name) || p.username || (complete ? '—' : ME_PROFILE.name);
+  if (typeof p.bio === 'string' && (p.bio || complete)) ME_PROFILE.bio = p.bio;
   if (typeof p.email === 'string') ME_PROFILE.email = p.email || '';
+  if (complete || typeof p.major === 'string') ME_PROFILE.major = (typeof p.major === 'string' && p.major) || '';
+  if (complete || typeof p.year === 'string') ME_PROFILE.grade = (typeof p.year === 'string' && p.year) || '';
+  if (complete || typeof p.clazz === 'string') ME_PROFILE.clazz = (typeof p.clazz === 'string' && p.clazz) || '';
+  if (complete || Array.isArray(p.tags)) ME_PROFILE.tags = Array.isArray(p.tags) ? p.tags : [];
   if (typeof p.github === 'string' || typeof p.blog === 'string') {
     ME_PROFILE.links = {
       github: typeof p.github === 'string' ? p.github : (ME_PROFILE.links && ME_PROFILE.links.github) || '',
@@ -2599,13 +2627,27 @@ function applyUserProfile(p) {
     if (typeof p.bio === 'string' && p.bio) state.editProfileForm.bio = p.bio;
     if (typeof p.email === 'string' && p.email) state.editProfileForm.email = p.email;
     if (ME_PROFILE.links) state.editProfileForm.links = { github: ME_PROFILE.links.github || '', blog: ME_PROFILE.links.blog || '' };
+    state.editProfileForm.realName = (typeof p.real_name === 'string' && p.real_name) || state.editProfileForm.realName || '';
+    state.editProfileForm.major = (typeof p.major === 'string' && p.major) || state.editProfileForm.major || '';
+    state.editProfileForm.year = (typeof p.year === 'string' && p.year) || state.editProfileForm.year || '';
+    state.editProfileForm.clazz = (typeof p.clazz === 'string' && p.clazz) || state.editProfileForm.clazz || '';
   }
   ME_PROFILE.birthday = p.birthday || '';
   ME_PROFILE.avatarKey = p.avatar || 'sun';
   updateIdentityChrome();
 }
 function persistProfileToServer(p) {
-  return apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({ username: p.username, bio: p.bio || '', birthday: p.birthday || '', avatar: p.avatar || 'sun', email: typeof p.email === 'string' ? p.email : '', github: typeof p.github === 'string' ? p.github : '', blog: typeof p.blog === 'string' ? p.blog : '' }) }).catch(function () { return null; });
+  return apiFetch('/api/profile', { method: 'PATCH', body: JSON.stringify({
+    username: p.username || state.authSession.name || '校园成员',
+    bio: p.bio || '', birthday: p.birthday || '', avatar: p.avatar || 'sun',
+    email: typeof p.email === 'string' ? p.email : '',
+    github: typeof p.github === 'string' ? p.github : '',
+    blog: typeof p.blog === 'string' ? p.blog : '',
+    real_name: typeof p.real_name === 'string' ? p.real_name : '',
+    major: typeof p.major === 'string' ? p.major : '',
+    year: typeof p.year === 'string' ? p.year : '',
+    clazz: typeof p.clazz === 'string' ? p.clazz : ''
+  }) }).catch(function () { return null; });
 }
 function restoreProfileIfReset() {
   var uid = state.authSession && state.authSession.user_id;
@@ -2727,7 +2769,21 @@ function unlockApp() {
   document.body.classList.add('auth-complete');
   updateIdentityChrome();
   render();
+  loadServerNotifications(); // 拉取站内通知（管理员审核提醒等）
   maybeShowProfileOnboarding();
+}
+/* ═══ 站内通知：合并后端通知（资料审核提醒等）到通知中心 ═══ */
+function loadServerNotifications(){
+  apiFetch('/api/notifications').then(function(r){
+    if(!r||!r.notifications||!r.notifications.length)return;
+    var existing={};(state.notifications||[]).forEach(function(n){existing[n.id]=1});
+    var fresh=r.notifications.filter(function(n){
+      return !existing[n.id]&&!existing['srv_'+n.id]&&!n.read; // 种子通知(id 与前端 mock 相同)与已读的跳过
+    }).map(function(n){
+      return {id:'srv_'+n.id,level:n.level==='urgent'?'urgent':(n.level==='optional'?'optional':'normal'),type:n.type||'system',content:n.content,time:n.time,read:!!n.read,processed:!!n.processed,saved_for_later:!!n.saved_for_later}
+    });
+    if(fresh.length){state.notifications=fresh.concat(state.notifications||[]);if(state.route==='notifications')render()}
+  }).catch(function(){});
 }
 async function syncLoginGate() {
   try {
@@ -2779,6 +2835,7 @@ function completeLogin(result, persistent, form) {
   state.authSession = result;
   state.profile = result.profile || state.profile;
   restoreProfileIfReset(); // 服务器重启丢资料时，从本地备份恢复该账户的资料
+  applyUserProfile(state.profile); // 关键：把服务端资料（姓名/简介/邮箱/实名信息）应用到界面
   rememberLogin(persistent);
   rememberAccount(result, persistent);
   setLoginBusy(form, false);
@@ -3023,7 +3080,14 @@ function initProfileOnboardingGuard() {
     event.preventDefault();
     const username = $('onboarding-username').value.trim();
     if (username.length < 2) { setLoginMessage($('profile-onboarding-message'), '用户名至少 2 个字符。'); return; }
+    const realName = ($('onboarding-realname')?.value.trim()) || '';
+    if (realName.length < 2) { setLoginMessage($('profile-onboarding-message'), '请填写真实姓名（至少 2 个字符）。'); return; }
     state.profile.username = username;
+    state.profile.real_name = realName;
+    state.profile.major = ($('onboarding-major')?.value.trim()) || '';
+    state.profile.year = ($('onboarding-year')?.value.trim()) || '';
+    state.profile.clazz = ($('onboarding-clazz')?.value.trim()) || '';
+    state.profile.email = ($('onboarding-email')?.value.trim()) || '';
     state.profile.bio = $('onboarding-bio').value.trim();
     state.profile.birthday = $('onboarding-birthday').value;
     const avatarEl = form.querySelector('input[name="avatar"]:checked');
